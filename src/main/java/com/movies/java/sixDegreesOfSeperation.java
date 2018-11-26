@@ -23,7 +23,7 @@ public class sixDegreesOfSeperation {
     public static final ArrayList<String> FOUND = new ArrayList<>(Arrays.asList("FOUND IT"));
 
     static String crewDataFile  = "src/main/resources/actors";
-    static String titleDataFile = "src/main/resources/titles";
+    static String titleDataFile = "src/main/resources/movies";
     private static final Pattern COMMA = Pattern.compile(",");
     private static final Pattern TAB = Pattern.compile("\t");
 
