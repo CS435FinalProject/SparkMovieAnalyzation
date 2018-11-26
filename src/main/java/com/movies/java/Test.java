@@ -48,10 +48,10 @@ public final class Test {
     }
 
     public static void main(String[] args) throws Exception {
-        if (args.length < 2) {
-            System.err.println("Usage: JavaPageRank <file> <number_of_iterations>");
-            System.exit(1);
-        }
+//        if (args.length < 2) {
+//            System.err.println("Usage: JavaPageRank <file> <number_of_iterations>");
+//            System.exit(1);
+//        }
 
         showWarning();
 
@@ -66,7 +66,7 @@ public final class Test {
         //     URL         neighbor URL
         //     URL         neighbor URL
         //     ...
-        JavaRDD<String> lines = spark.read().textFile(args[0]).javaRDD();
+        JavaRDD<String> lines = spark.read().textFile("src/main/resources/test.txt").javaRDD();
 
         // Loads all URLs from input file and initialize their neighbors.
         JavaPairRDD<String, Iterable<String>> links = lines.mapToPair(s -> {
@@ -78,7 +78,7 @@ public final class Test {
         JavaPairRDD<String, Double> ranks = links.mapValues(rs -> 1.0);
 
         // Calculates and updates URL ranks continuously using PageRank algorithm.
-        for (int current = 0; current < Integer.parseInt(args[1]); current++) {
+        for (int current = 0; current < Integer.parseInt("15"); current++) {
             // Calculates URL contributions to the rank of other URLs.
             JavaPairRDD<String, Double> contribs = links.join(ranks).values()
                     .flatMapToPair(s -> {
