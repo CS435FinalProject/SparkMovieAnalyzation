@@ -136,6 +136,13 @@ public class DataReducer {
         });
         //joinedTitles.coalesce(1).map(s ->"$._1\t$._2._1\t$._2._2")
         joinedTitles.coalesce(1).saveAsTextFile(output + "/joinedTitles.tsv");
+
+        JavaRDD<String> stringTitles = joinedTitles.map(
+                s ->{
+                    return s._1+"\t"+s._2._1+"\t"+s._2._2;
+                }
+        );
+        stringTitles.coalesce(1).saveAsTextFile("output/joinedTitles.tsv");
     }
 
     /**
@@ -164,6 +171,12 @@ public class DataReducer {
            String name = s._2.remove(0).toString();
            return new Tuple2<>(name, new Tuple2<>(s._1,s._2));
         });
-        joinedCrew.coalesce(1).saveAsTextFile(output + "/joinedCrew.tsv");
+        //joinedCrew.coalesce(1).saveAsTextFile(output + "/joinedCrew.tsv");
+        JavaRDD<String> stringCrew = joinedCrew.map(
+                s ->{
+                    return s._1+"\t"+s._2._1+"\t"+s._2._2;
+                }
+        );
+        stringCrew.coalesce(1).saveAsTextFile("output/joinedCrew.tsv");
     }
 }
