@@ -17,7 +17,7 @@ import org.apache.spark.sql.Row;
 import java.util.*;
 import java.util.regex.Pattern;
 
-public class sixDegreesOfSeperation {
+public class sixDegreesOfSeparation {
     public static SparkSession spark;
     public static final ArrayList<String> EMPTY = new ArrayList<>();
     public static final ArrayList<String> FOUND = new ArrayList<>(Arrays.asList("FOUND IT"));
