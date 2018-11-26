@@ -61,12 +61,11 @@ public class sixDegreesOfSeparation {
             row = spark.sql("SELECT assoc FROM global_temp.title_T WHERE id='" + id + "'");
         }
         System.out.println(id);
-        row.show();
         String[] parts = row.collectAsList().get(0).toString().split("__");
         String[] associationsArray = parts[1].split(",");
 
         for (String each : associationsArray) {
-//            System.out.println(each);
+            System.out.println(id + " is associated to " + each);
             associationsList.add(each);
         }
 
@@ -75,7 +74,6 @@ public class sixDegreesOfSeparation {
 
     public static String getCrewID(String name) {
         Dataset<Row> row = spark.sql("SELECT id FROM global_temp.crew_T WHERE assoc LIKE '" + name + "__%'");
-        row.show();
         Row attributes = row.collectAsList().get(0);
         return attributes.get(0).toString();
     }
@@ -85,7 +83,9 @@ public class sixDegreesOfSeparation {
             return EMPTY; // depth = 7
         }
 
+        System.out.println("depth " + depth + ": " + crewID);
         ArrayList<String> movies = getAssociations(crewID);
+
         HashMap<String, ArrayList<String>> movieActors = new HashMap<>();
 
         for (String movieID : movies) {
