@@ -103,6 +103,7 @@ public class sixDegreesOfSeparation {
                     path.add(currentCrewAlsoInMovie);
                     return path;
                 } else if (currentCrewAlsoInMovie.equals(sourceID)) {
+                    System.out.println("Removing self (" + crewID + ") from " + movieID);
                     crewAlsoInMovie.remove(i--);
                 }
             }
@@ -193,7 +194,7 @@ public class sixDegreesOfSeparation {
         if (path.isEmpty()) {
             System.out.println("Did not find a path ]:");
         } else {
-            System.out.println("Found the path: ");
+            System.out.println("Found the path in " + path.size() + " vertices (including movies).");
             String previous = sourceID;
             for (int i = 0; i < path.size(); ++i) {
                 System.out.println(previous + " was in " + path.get(i) + " with " + path.get(++i));
