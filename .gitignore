@@ -3,8 +3,10 @@ out/
 *.class
 target/
 
+output/
 .idea/
 
+real/
 *.iml
 modules.xml
 *.ipr
