@@ -20,7 +20,7 @@ import java.util.regex.Pattern;
 public class sixDegreesOfSeparation {
     public static SparkSession spark;
     public static final ArrayList<String> EMPTY = new ArrayList<>();
-    public static final ArrayList<String> FOUND = new ArrayList<>(Arrays.asList("FOUND IT"));
+    public static ArrayList<String> FOUND = new ArrayList<>(Arrays.asList("FOUND IT"));
 
     static String crewDataFile  = "src/main/resources/actors";
     static String titleDataFile = "src/main/resources/movies";
@@ -95,11 +95,15 @@ public class sixDegreesOfSeparation {
             // if (movieID.equals(destinationID)) { path.add(movie); return path; }
             ArrayList<String> crewAlsoInMovie = getAssociations(movieID);
 
-            for (String crewInMovieID : crewAlsoInMovie) {
-                if (crewInMovieID.equals(destinationID)) {
-                    return FOUND;
-                } else if (crewInMovieID.equals(sourceID)) {
-                    crewAlsoInMovie.remove(crewInMovieID);
+            for (int i = 0; i < crewAlsoInMovie.size(); ++i) {
+                String currentCrewAlsoInMovie = crewAlsoInMovie.get(i);
+                if (currentCrewAlsoInMovie.equals(destinationID)) {
+                    ArrayList<String> path = new ArrayList<>();
+                    path.add(movieID);
+                    path.add(currentCrewAlsoInMovie);
+                    return path;
+                } else if (currentCrewAlsoInMovie.equals(sourceID)) {
+                    crewAlsoInMovie.remove(i--);
                 }
             }
             movieActors.put(movieID, crewAlsoInMovie);
@@ -111,11 +115,11 @@ public class sixDegreesOfSeparation {
             for (String currentCrew : crew) {
                 ArrayList<String> path = dfs(depth + 1, currentCrew);
                 if (!path.isEmpty()) {
-                    if (path.get(0).equals("FOUND IT")) {
-                        path = new ArrayList<>();
+                    if (path.size() > 2) {
+                        path.add(currentMovie);
+                        path.add(currentCrew);
+                        return path;
                     }
-                    path.add(path.size() - 1, currentMovie);
-                    path.add(path.size() - 1, currentCrew);
                     return path;
                 }
             }
@@ -182,6 +186,7 @@ public class sixDegreesOfSeparation {
 
         sourceID = getCrewID(args[0]);
         destinationID = getCrewID(args[1]);
+        System.out.println("Finding path from " + sourceID + " to " + destinationID);
 
         ArrayList<String> path = dfs(0, sourceID);
 
@@ -189,8 +194,9 @@ public class sixDegreesOfSeparation {
             System.out.println("Did not find a path ]:");
         } else {
             System.out.println("Found the path: ");
-            for (String id : path) {
-                System.out.println(id);
+            String previous = sourceID;
+            for (int i = 0; i < path.size(); ++i) {
+                System.out.println(previous + " was in " + path.get(i) + " with " + path.get(++i));
             }
         }
     }
