@@ -27,10 +27,10 @@ public class DataReducer {
      * Each drop array is an array of indices to be dropped
      * Change values however you see fit
      */
-    private final int[] titleDrop = {3,4,6};  //drop originalTitle, isAdult and endYear
+    private final int[] titleDrop = {1,3,4,5,6,7,8};  //drop originalTitle, isAdult and endYear
     private final int[] ratingsDrop = {2};   //drop numVotes
-    private final int[] titlePrinciplesDrop = {1,4};   //drop ordering and job
-    private final int[] crewDrop = {5};    //drop known for titles
+    private final int[] titlePrinciplesDrop = {1,3,4,5};   //drop ordering and job
+    private final int[] crewDrop = {2,3,4,5};    //drop known for titles
 
     public static void main(String[] args) {
         DataReducer dr = new DataReducer("src/main/resources/movie.title.basics.test.tsv",
@@ -115,13 +115,13 @@ public class DataReducer {
 //            s.set(5, genres);
 //            return s;
 //        });
-        JavaPairRDD<String, LinkedList> joinedTitles = titles.join(ratings).mapValues(s -> {
-            s._1.addAll(s._2);
-            return s._1;
-        }).join(titlePrinciples).mapValues(s -> {
+        JavaPairRDD<String, Tuple2<String, LinkedList>> joinedTitles = titles.join(titlePrinciples).mapValues(s -> {
             s._1.add(s._2.peekFirst());
             return s._1;
-        }).distinct();
+        }).distinct().mapToPair(s ->{
+            String title = s._2.remove(0).toString();
+            return new Tuple2<>(title, new Tuple2<>(s._1,s._2));
+        });
 
         joinedTitles.coalesce(1).saveAsTextFile("output/joinedTitles.tsv");
     }
@@ -145,11 +145,13 @@ public class DataReducer {
             return new Tuple2<>(crewID,s._2);
         });
 
-        JavaPairRDD<String, LinkedList> joinedCrew = crew.join(crewPrinciples).mapValues(s -> {
+        JavaPairRDD<String, Tuple2<String,LinkedList>> joinedCrew = crew.join(crewPrinciples).mapValues(s -> {
             s._1.add(s._2.peekFirst());
             return s._1;
-        }).distinct();
-
+        }).distinct().mapToPair(s ->{
+           String name = s._2.remove(0).toString();
+           return new Tuple2<>(name, new Tuple2<>(s._1,s._2));
+        });
         joinedCrew.coalesce(1).saveAsTextFile("output/joinedCrew.tsv");
     }
 }
