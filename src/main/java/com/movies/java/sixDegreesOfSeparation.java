@@ -48,7 +48,7 @@ public class sixDegreesOfSeparation {
                     actorsVisited.add(id);
                 }
             }
-            row = spark.sql("SELECT assoc FROM actorsTable WHERE id='" + id + "'");
+            row = spark.sql("SELECT assoc FROM global_temp.crew_T WHERE id='" + id + "'");
 
         } else if (id.charAt(0) == 't') {
             if (titlesVisited.contains(id)) {
@@ -58,14 +58,15 @@ public class sixDegreesOfSeparation {
                     titlesVisited.add(id);
                 }
             }
-            row = spark.sql("SELECT assoc FROM titlesTable WHERE id='" + id + "'");
+            row = spark.sql("SELECT assoc FROM global_temp.title_T WHERE id='" + id + "'");
         }
-
+        System.out.println(id);
+        row.show();
         String[] parts = row.collectAsList().get(0).toString().split("__");
         String[] associationsArray = parts[1].split(",");
 
         for (String each : associationsArray) {
-            System.out.println(each);
+//            System.out.println(each);
             associationsList.add(each);
         }
 
@@ -73,12 +74,10 @@ public class sixDegreesOfSeparation {
     }
 
     public static String getCrewID(String name) {
-        Dataset<Row> row = spark.sql("SELECT id FROM actorsTable WHERE id='" + name + "'");
+        Dataset<Row> row = spark.sql("SELECT id FROM global_temp.crew_T WHERE assoc LIKE '" + name + "__%'");
+        row.show();
         Row attributes = row.collectAsList().get(0);
-        System.out.println(attributes.get(0));
-
-        String crewID = ""; // ?? somewhere in attributes, maybe .get(0) or ._1
-        return crewID;
+        return attributes.get(0).toString();
     }
 
     public static ArrayList<String> dfs(int depth, String crewID) {
@@ -147,7 +146,7 @@ public class sixDegreesOfSeparation {
         }
 
         titlesVisited = Collections.synchronizedSet(new HashSet<String>(5430168, (float) 1.0));
-        actorsVisited = Collections.synchronizedSet(new HashSet<String>(5430168, (float) 1.0));
+        actorsVisited = Collections.synchronizedSet(new HashSet<String>(8977203, (float) 1.0));
 
         spark = SparkSession
                 .builder()
@@ -158,23 +157,25 @@ public class sixDegreesOfSeparation {
         JavaPairRDD<String, String> crewLines = makeRDD(crewDataFile);
         JavaPairRDD<String, String> titleLines = makeRDD(titleDataFile);
 
-        crewLines.foreach(
-                s -> {
-                    System.out.println(s);
-                }
-        );
-
-        titleLines.foreach(
-                s -> {
-                    System.out.println(s);
-                }
-        );
+//        crewLines.foreach(
+//                s -> {
+//                    System.out.println(s);
+//                }
+//        );
+//
+//        titleLines.foreach(
+//                s -> {
+//                    System.out.println(s);
+//                }
+//        );
 
         crewTable = spark.createDataset(crewLines.collect(), Encoders.tuple(Encoders.STRING(), Encoders.STRING())).toDF("id","assoc");
-        crewTable.show();
+        crewTable.createOrReplaceGlobalTempView("crew_T");
+//        crewTable.show();
 
         titleTable = spark.createDataset(titleLines.collect(), Encoders.tuple(Encoders.STRING(), Encoders.STRING())).toDF("id","assoc");
-        titleTable.show();
+        titleTable.createOrReplaceGlobalTempView("title_T");
+//        titleTable.show();
 
         sourceID = getCrewID(args[0]);
         destinationID = getCrewID(args[1]);
@@ -184,6 +185,7 @@ public class sixDegreesOfSeparation {
         if (path.isEmpty()) {
             System.out.println("Did not find a path ]:");
         } else {
+            System.out.println("Found the path: ");
             for (String id : path) {
                 System.out.println(id);
             }
