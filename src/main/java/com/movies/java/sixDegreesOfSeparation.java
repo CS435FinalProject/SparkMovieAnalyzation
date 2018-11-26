@@ -20,7 +20,6 @@ import java.util.regex.Pattern;
 public class sixDegreesOfSeparation {
     public static SparkSession spark;
     public static final ArrayList<String> EMPTY = new ArrayList<>();
-    public static ArrayList<String> FOUND = new ArrayList<>(Arrays.asList("FOUND IT"));
 
     static String crewDataFile  = "src/main/resources/actors";
     static String titleDataFile = "src/main/resources/movies";
@@ -102,7 +101,7 @@ public class sixDegreesOfSeparation {
                     path.add(movieID);
                     path.add(currentCrewAlsoInMovie);
                     return path;
-                } else if (currentCrewAlsoInMovie.equals(sourceID)) {
+                } else if (currentCrewAlsoInMovie.equals(crewID)) {
                     System.out.println("Removing self (" + crewID + ") from " + movieID);
                     crewAlsoInMovie.remove(i--);
                 }
@@ -115,10 +114,12 @@ public class sixDegreesOfSeparation {
             ArrayList<String> crew = movieActors.get(currentMovie);
             for (String currentCrew : crew) {
                 ArrayList<String> path = dfs(depth + 1, currentCrew);
+
                 if (!path.isEmpty()) {
-                    if (path.size() > 2) {
-                        path.add(currentMovie);
-                        path.add(currentCrew);
+
+                    if (path.size() >= 2) {
+                        path.add(0, currentCrew);
+                        path.add(0, currentMovie);
                         return path;
                     }
                     return path;
@@ -189,15 +190,20 @@ public class sixDegreesOfSeparation {
         destinationID = getCrewID(args[1]);
         System.out.println("Finding path from " + sourceID + " to " + destinationID);
 
-        ArrayList<String> path = dfs(0, sourceID);
+        ArrayList<String> path = dfs(1, sourceID);
 
         if (path.isEmpty()) {
             System.out.println("Did not find a path ]:");
         } else {
             System.out.println("Found the path in " + path.size() + " vertices (including movies).");
             String previous = sourceID;
+            for (String each : path) {
+                System.out.println(each);
+            }
+
             for (int i = 0; i < path.size(); ++i) {
                 System.out.println(previous + " was in " + path.get(i) + " with " + path.get(++i));
+                previous = path.get(i);
             }
         }
     }
