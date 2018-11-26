@@ -21,6 +21,9 @@ public class DataReducer {
     private String ratingsFile;
     private String titlePrinciplesFile;
     private String crewFile;
+    private String output;
+
+    private static String hdfs = "hdfs://raleigh:30101";
 
     /**
      * Specify the columns from the input files that will be dropped
@@ -33,28 +36,37 @@ public class DataReducer {
     private final int[] crewDrop = {2,3,4,5};    //drop known for titles
 
     public static void main(String[] args) {
-        DataReducer dr = new DataReducer("src/main/resources/movie.title.basics.test.tsv",
-                "src/main/resources/title.ratings.tsv",
-                "src/main/resources/title.principles.test.tsv",
-                "src/main/resources/crew.names.professions.basics.test.tsv");
-        dr.reduceData();
-        dr.stop();
+        if(args.length > 3) {
+            String output = args[0];
+            if (args.length > 4 && args[4].equals("false")) hdfs = "";
+            String titleBasicInput = args[1];
+            String titlePrinciplesInput = args[2];
+            String nameBasicInput = args[3];
+            //        DataReducer dr = new DataReducer("src/main/resources/movie.title.basics.test.tsv",
+            //                "src/main/resources/title.ratings.tsv",
+            //                "src/main/resources/title.principles.test.tsv",
+            //                "src/main/resources/crew.names.professions.basics.test.tsv",output);
+            DataReducer dr = new DataReducer(hdfs + titleBasicInput,
+                    hdfs + titlePrinciplesInput,
+                    hdfs + nameBasicInput, hdfs + "" + output);
+            dr.reduceData();
+            dr.stop();
+        }
     }
 
     /**
      * DataReducer Constructor, set up spark context and input files
      * @param titlesFile is the input file for movie titles data (From IMDb), this file also includes genre, release year etc.
-     * @param ratingsFile is the input file for movie ratings data (From IMDb), this includes title ID and IMDb rating
      * @param titlePrinciplesFile is the input file for titlePrinciples data (From IMDb), this is a file containing
      *        information about which actors, directors, writers etc are in a movie all given by their unique ID
      * @param crewFile is the input file for crew data (From IMDb), this includes name and job category
      */
-    public DataReducer(String titlesFile, String ratingsFile, String titlePrinciplesFile, String crewFile) {
-        this.spark = new SparkContext(new SparkConf().setMaster("local").setAppName("Test"));
+    public DataReducer(String titlesFile, String titlePrinciplesFile, String crewFile, String output) {
+        this.spark = new SparkContext(new SparkConf().setAppName("Test"));
         this.titlesFile = titlesFile;
-        this.ratingsFile = ratingsFile;
         this.titlePrinciplesFile = titlePrinciplesFile;
         this.crewFile = crewFile;
+        this.output = output;
     }
 
     public void stop() {
@@ -84,7 +96,7 @@ public class DataReducer {
                 }
             }
             return new Tuple2<>(id, list);
-        }).distinct().filter(s -> !s._1.endsWith("t"));
+        }).filter(s -> !s._1.endsWith("t"));
     }
 
     /**
@@ -122,8 +134,8 @@ public class DataReducer {
             String title = s._2.remove(0).toString();
             return new Tuple2<>(title, new Tuple2<>(s._1,s._2));
         });
-
-        joinedTitles.coalesce(1).saveAsTextFile("output/joinedTitles.tsv");
+        //joinedTitles.coalesce(1).map(s ->"$._1\t$._2._1\t$._2._2")
+        joinedTitles.coalesce(1).saveAsTextFile(output + "/joinedTitles.tsv");
     }
 
     /**
@@ -152,6 +164,6 @@ public class DataReducer {
            String name = s._2.remove(0).toString();
            return new Tuple2<>(name, new Tuple2<>(s._1,s._2));
         });
-        joinedCrew.coalesce(1).saveAsTextFile("output/joinedCrew.tsv");
+        joinedCrew.coalesce(1).saveAsTextFile(output + "/joinedCrew.tsv");
     }
 }
