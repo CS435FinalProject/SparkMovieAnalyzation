@@ -65,6 +65,9 @@ public class sixDegreesOfSeparation {
         String[] associationsArray = parts[1].split(",");
 
         for (String each : associationsArray) {
+            if (each.charAt(each.length() - 1) == ']') {
+                each = each.substring(0, each.length() - 1);
+            }
             System.out.println(id + " is associated to " + each);
             associationsList.add(each);
         }
@@ -157,17 +160,17 @@ public class sixDegreesOfSeparation {
         JavaPairRDD<String, String> crewLines = makeRDD(crewDataFile);
         JavaPairRDD<String, String> titleLines = makeRDD(titleDataFile);
 
-//        crewLines.foreach(
-//                s -> {
-//                    System.out.println(s);
-//                }
-//        );
-//
-//        titleLines.foreach(
-//                s -> {
-//                    System.out.println(s);
-//                }
-//        );
+        crewLines.foreach(
+                s -> {
+                    System.out.println(s);
+                }
+        );
+
+        titleLines.foreach(
+                s -> {
+                    System.out.println(s);
+                }
+        );
 
         crewTable = spark.createDataset(crewLines.collect(), Encoders.tuple(Encoders.STRING(), Encoders.STRING())).toDF("id","assoc");
         crewTable.createOrReplaceGlobalTempView("crew_T");
