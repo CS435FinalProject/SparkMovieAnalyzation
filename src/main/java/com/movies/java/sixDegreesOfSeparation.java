@@ -33,8 +33,8 @@ public class sixDegreesOfSeparation {
     public static Dataset<Row> crewTable;
     public static Dataset<Row> titleTable;
 
-    public static Set<String> titlesVisited;
-    public static Set<String> actorsVisited;
+    public static Map<String, String> titlesVisited;
+    public static Map<String, String> actorsVisited;
 
     public static JavaPairRDD<String, String> makeRDD(String whichFile, boolean isTitleFile) {
         return spark.read().textFile(whichFile).javaRDD().
@@ -56,13 +56,16 @@ public class sixDegreesOfSeparation {
                     for(int i = 1; i < associations.length; ++i) {
                         nameIDs += "," + associations[i];
                     }
-
                     return new Tuple2<>(id, nameIDs);
                 });
     }
 
-    public static String getCrewID(String name) {
-        Dataset<Row> row = spark.sql("SELECT id FROM global_temp.crew_T WHERE assoc LIKE '" + name + "__%'");
+    public static String getCrewID(String name, String movie) {
+        System.out.println("Looking for actor "+name+" from "+movie);
+        Dataset<Row> movieRow = spark.sql("SELECT id from global_temp.title_T WHERE assoc LIKE '" + movie + "\\_\\_%'");
+        String movieID = movieRow.collectAsList().get(0).get(0).toString();
+        System.out.println(movieID);
+        Dataset<Row> row = spark.sql("SELECT id FROM global_temp.crew_T WHERE assoc LIKE '" + name + "\\_\\_%"+movieID+"%'");
         Row attributes = row.collectAsList().get(0);
         return attributes.get(0).toString();
     }
@@ -84,6 +87,13 @@ public class sixDegreesOfSeparation {
 
         public String extractName(String id) {
             System.out.println("In extract name, id is "+id);
+
+            if(actorsVisited.containsKey(id)){
+                return actorsVisited.get(id);
+            }
+            else if(titlesVisited.containsKey(id)){
+                return titlesVisited.get(id);
+            }
             String tableToUse = (id.charAt(0) == 'n') ? "crew" : "title";
             Dataset<Row> row = spark.sql("SELECT assoc FROM global_temp." + tableToUse + "_T WHERE id='" + id + "'");
             List<Row> rowList = row.collectAsList();
@@ -126,7 +136,6 @@ public class sixDegreesOfSeparation {
         }
     }
 
-
     public static ArrayList<Node> getChildren(Node parent) {
         System.out.println("In getChildren: "+parent.getValue());
         String whichTable = (parent.getValue().charAt(0) == 'n') ? "crew" : "title";
@@ -157,7 +166,7 @@ public class sixDegreesOfSeparation {
 
         int depth = 0;
         Queue<Node> nodes = new LinkedList<>();
-        actorsVisited.add(root.getValue());
+        actorsVisited.put(root.getValue(),root.extractName(root.getValue()));
         nodes.offer(root);
         System.out.println("Starting node: "+root.getValue());
         while(!nodes.isEmpty() && depth < 13) {
@@ -171,15 +180,15 @@ public class sixDegreesOfSeparation {
                     System.out.println("Found final node!: "+n.getValue());
                     return n;
                 }
-                if(n.isAnActor() && !actorsVisited.contains(n.getValue())) {
+                if(n.isAnActor() && !actorsVisited.containsKey(n.getValue())) {
                     System.out.println("    Visiting actor");
-                    actorsVisited.add(n.getValue());
+                    actorsVisited.put(n.getValue(), n.extractName(n.getValue()));
                     nodes.add(n);
                     System.out.println("Added "+n.getValue()+" to queue");
                 }
-                else if(!n.isAnActor() && !titlesVisited.contains(n.getValue())) {
+                else if(!n.isAnActor() && !titlesVisited.containsKey(n.getValue())) {
                     System.out.println("    Visiting movie");
-                    titlesVisited.add(n.getValue());
+                    titlesVisited.put(n.getValue(), n.extractName(n.getValue()));
                     nodes.add(n);
                     System.out.println("Added "+n.getValue()+" to queue");
 
@@ -202,8 +211,8 @@ public class sixDegreesOfSeparation {
         }
         titleDataFile = args[0];
         crewDataFile  = args[1];
-        titlesVisited = Collections.synchronizedSet(new HashSet<String>(5430168, (float) 1.0));
-        actorsVisited = Collections.synchronizedSet(new HashSet<String>(8977203, (float) 1.0));
+        titlesVisited = Collections.synchronizedMap(new HashMap<String, String>());
+        actorsVisited = Collections.synchronizedMap(new HashMap<String, String>());
 
         spark = SparkSession
                 .builder()
@@ -212,14 +221,14 @@ public class sixDegreesOfSeparation {
                 .getOrCreate();
 
         JavaPairRDD<String, String> crewLines = makeRDD(crewDataFile, false);
-        List<Tuple2<String, String>> crewLinesOut = crewLines.take(10);
-        for(Tuple2<String, String> s: crewLinesOut)
-            System.out.println(s);
+//        List<Tuple2<String, String>> crewLinesOut = crewLines.take(10);
+//        for(Tuple2<String, String> s: crewLinesOut)
+//            System.out.println(s);
 
         JavaPairRDD<String, String> titleLines = makeRDD(titleDataFile, true);
-        List<Tuple2<String, String>> titleLinesOut = titleLines.take(10);
-        for(Tuple2<String, String> s: titleLinesOut)
-            System.out.println(s);
+//        List<Tuple2<String, String>> titleLinesOut = titleLines.take(10);
+//        for(Tuple2<String, String> s: titleLinesOut)
+//            System.out.println(s);
 
         crewTable = spark.createDataset(crewLines.collect(), Encoders.tuple(Encoders.STRING(), Encoders.STRING())).toDF("id","assoc");
         crewTable.createOrReplaceGlobalTempView("crew_T");
@@ -227,9 +236,10 @@ public class sixDegreesOfSeparation {
         titleTable = spark.createDataset(titleLines.collect(), Encoders.tuple(Encoders.STRING(), Encoders.STRING())).toDF("id","assoc");
         titleTable.createOrReplaceGlobalTempView("title_T");
 
-        sourceID = getCrewID(args[2]);
+        sourceID = getCrewID(args[2], args[3]);
         System.out.println("Source ID is: "+sourceID);
-        destinationID = getCrewID(args[3]);
+
+        destinationID = getCrewID(args[4], args[5]);
         System.out.println("DestinationID is: "+destinationID);
 
         if (sourceID.isEmpty() || destinationID.isEmpty()) {
@@ -249,18 +259,5 @@ public class sixDegreesOfSeparation {
 
         System.out.println(output);
 
-//        BufferedWriter writer = new BufferedWriter(new FileWriter(args[4]));
-//        writer.write(output);
-//        writer.close();
-
-//        Run DFS
-//        ArrayList<String> path = dfs(1, sourceID);
-//        System.out.println("Found the path in " + path.size() + " vertices (including movies).");
-//        String previous = sourceID;
-//
-//        for (int i = 0; i < path.size(); ++i) {
-//            System.out.println(previous + " was in " + path.get(i) + " with " + path.get(++i));
-//            previous = path.get(i);
-//        }
     }
 }
