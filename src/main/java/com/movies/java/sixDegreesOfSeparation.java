@@ -75,7 +75,7 @@ public class sixDegreesOfSeparation {
 				});
 	}
 
-	public static String getCrewID(String name) {
+	public static String getCrewID(String name, String movie) {
 		Dataset<Row> row = sparkSession.sql("SELECT id FROM global_temp.crew_T WHERE assoc LIKE '" + name + "__%'");
 		Row attributes = row.collectAsList().get(0);
 		return attributes.get(0).toString();
@@ -153,6 +153,7 @@ public class sixDegreesOfSeparation {
 		String whichTable = (parent.getValue().charAt(0) == 'n') ? "crew" : "title";
 		Dataset<Row> row = sparkSession.sql("SELECT assoc FROM global_temp." + whichTable + "_T WHERE id='" + parent.getValue() + "'");
 		List<Row> rowl = row.collectAsList();
+		//System.out.println(row.as([String]));
 //		String test = row.first().
 //		System.out.println("ROW: " + row);
 		if(rowl.size() == 0) return new ArrayList<Node>();
@@ -201,7 +202,7 @@ public class sixDegreesOfSeparation {
 		if(args.length < 2){
 			System.out.println("USAGE: sixDegreesOfSeparation <nameOfFromPerson> <nameOfToPerson>");
 		}
-		if(args[4].equals("false")) hdfs = "";
+		if(args[2].equals("false")) hdfs = "";
 		titleDataFile = hdfs+args[0];
 		crewDataFile = hdfs+args[1];
 		titlesVisited = Collections.synchronizedMap(new HashMap<String, String>(5430168, (float) 1.0));
@@ -229,8 +230,8 @@ public class sixDegreesOfSeparation {
 		titleTable = sparkSession.createDataset(titleLines.collect(), Encoders.tuple(Encoders.STRING(), Encoders.STRING())).toDF("id","assoc");
 		titleTable.createOrReplaceGlobalTempView("title_T");
 
-		sourceID = getCrewID(args[2]);
-		destinationID = getCrewID(args[3]);
+		sourceID = getCrewID(args[3], args[4]);
+		destinationID = getCrewID(args[5], args[6]);
 
 		if (sourceID.isEmpty() || destinationID.isEmpty()) {
 			System.out.println("ERROR: Could not find that person");
