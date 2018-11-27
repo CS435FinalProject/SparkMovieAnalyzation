@@ -59,7 +59,7 @@ public class sixDegreesOfSeparation {
             }
             row = spark.sql("SELECT assoc FROM global_temp.title_T WHERE id='" + id + "'");
         }
-        System.out.println(id);
+//        System.out.println(id);
         String[] parts = row.collectAsList().get(0).toString().split("__");
         String[] associationsArray = parts[1].split(",");
 
@@ -67,7 +67,7 @@ public class sixDegreesOfSeparation {
             if (each.charAt(each.length() - 1) == ']') {
                 each = each.substring(0, each.length() - 1);
             }
-            System.out.println(id + " is associated to " + each);
+//            System.out.println(id + " is associated to " + each);
             associationsList.add(each);
         }
 
@@ -85,7 +85,7 @@ public class sixDegreesOfSeparation {
             return EMPTY; // depth = 7
         }
 
-        System.out.println("depth " + depth + ": " + crewID);
+//        System.out.println("depth " + depth + ": " + crewID);
         ArrayList<String> movies = getAssociations(crewID);
 
         HashMap<String, ArrayList<String>> movieActors = new HashMap<>();
@@ -102,7 +102,7 @@ public class sixDegreesOfSeparation {
                     path.add(currentCrewAlsoInMovie);
                     return path;
                 } else if (currentCrewAlsoInMovie.equals(crewID)) {
-                    System.out.println("Removing self (" + crewID + ") from " + movieID);
+//                    System.out.println("Removing self (" + crewID + ") from " + movieID);
                     crewAlsoInMovie.remove(i--);
                 }
             }
