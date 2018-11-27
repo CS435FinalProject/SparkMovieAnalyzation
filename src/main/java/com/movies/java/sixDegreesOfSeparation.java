@@ -1,27 +1,28 @@
 package com.movies.java;
 
 
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FSDataOutputStream;
+import org.apache.hadoop.io.IOUtils;
 import org.apache.spark.SparkConf;
 import org.apache.spark.SparkContext;
 import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.api.java.JavaRDD;
-import org.apache.spark.sql.Dataset;
-import org.apache.spark.sql.Row;
-import org.apache.spark.sql.SparkSession;
+import org.apache.spark.sql.*;
 import org.apache.commons.lang.ArrayUtils;
 import scala.Tuple2;
 import org.apache.spark.sql.Dataset;
-import org.apache.spark.sql.Encoders;
 import org.apache.spark.sql.Row;
-
-import java.io.BufferedWriter;
-import java.io.FileWriter;
-import java.io.IOException;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
+import java.io.*;
+import java.net.URI;
 import java.util.*;
 import java.util.regex.Pattern;
 
 public class sixDegreesOfSeparation {
-    public static SparkSession spark;
+    public static SparkContext spark;
+    public static SQLContext sparksql;
     private static String hdfs = "hdfs://raleigh:30101";
     static String crewDataFile  = "src/main/resources/actors";
     static String titleDataFile = "src/main/resources/movies";
@@ -37,12 +38,12 @@ public class sixDegreesOfSeparation {
     public static Set<String> actorsVisited;
 
     public static JavaPairRDD<String, String> makeRDD(String whichFile) {
-        return spark.read().textFile(whichFile).javaRDD().
+        return spark.textFile(whichFile,10).toJavaRDD().
                 mapToPair( s -> {
                     s = s.replaceAll("[()\\[\\]]", "");
                     String[] parts = TAB.split(s);
-                    int idOrder = (whichFile == crewDataFile) ? 0 : 1;
-                    int nameOrder = (whichFile == crewDataFile) ? 1 : 0;
+                    int idOrder = (whichFile.equals(crewDataFile)) ? 0 : 1;
+                    int nameOrder = (whichFile.equals(crewDataFile)) ? 1 : 0;
                     String name = parts[idOrder];
                     String id   = parts[nameOrder];
 
@@ -57,7 +58,7 @@ public class sixDegreesOfSeparation {
     }
 
     public static String getCrewID(String name) {
-        Dataset<Row> row = spark.sql("SELECT id FROM global_temp.crew_T WHERE assoc LIKE '" + name + "__%'");
+        Dataset<Row> row = sparksql.sql("SELECT id FROM global_temp.crew_T WHERE assoc LIKE '" + name + "__%'");
         Row attributes = row.collectAsList().get(0);
         return attributes.get(0).toString();
     }
@@ -66,12 +67,17 @@ public class sixDegreesOfSeparation {
         private Node parent;
         private String value;
         private boolean isActor;
+        private int depth;
 
         Node(Node parent, String value) {
             this.parent = parent;
             this.value = value;
             this.isActor = (parent == null) || (!parent.isActor);
+            if(this.parent == null) depth = 0;
+            else depth = this.parent.depth+1;
         }
+
+        public int myDepth() { return this.depth; }
 
         public String getValue() {
             return this.value;
@@ -79,8 +85,10 @@ public class sixDegreesOfSeparation {
 
         public String extractName(String id) {
             String tableToUse = (id.charAt(0) == 'n') ? "crew" : "title";
-            Dataset<Row> row = spark.sql("SELECT assoc FROM global_temp." + tableToUse + "_T WHERE id='" + id + "'");
-            String[] attributes = row.collectAsList().get(0).toString().split("__");
+            Dataset<Row> row = sparksql.sql("SELECT assoc FROM global_temp." + tableToUse + "_T WHERE id='" + id + "'");
+            List<Row> rowl = row.collectAsList();
+            if(rowl.size() == 0 ) return "";
+            String[] attributes = rowl.get(0).toString().split("__");
             return attributes[0].substring(1, attributes[0].length());
         }
 
@@ -118,9 +126,10 @@ public class sixDegreesOfSeparation {
 
     public static ArrayList<Node> getChildren(Node parent) {
         String whichTable = (parent.getValue().charAt(0) == 'n') ? "crew" : "title";
-        Dataset<Row> row = spark.sql("SELECT assoc FROM global_temp." + whichTable + "_T WHERE id='" + parent.getValue() + "'");
-
-        String[] parts = row.collectAsList().get(0).toString().split("__");
+        Dataset<Row> row = sparksql.sql("SELECT assoc FROM global_temp." + whichTable + "_T WHERE id='" + parent.getValue() + "'");
+        List<Row> rowl = row.collectAsList();
+        if(rowl.size() == 0) return new ArrayList<Node>();
+        String[] parts = rowl.get(0).toString().split("__");
         String[] associationsArray = parts[1].split(",");
         ArrayList<Node> associationsList = new ArrayList<>();
 
@@ -142,8 +151,9 @@ public class sixDegreesOfSeparation {
         actorsVisited.add(root.getValue());
         nodes.offer(root);
 
-        while(!nodes.isEmpty() && depth < 13) {
+        while(!nodes.isEmpty()) {
             Node node = nodes.poll();
+            if(node.myDepth() >= 13) break;
             for(Node n : getChildren(node)) {
                 if (n.getValue().equals(destinationID)) {
                     return n;
@@ -156,7 +166,6 @@ public class sixDegreesOfSeparation {
                     nodes.add(n);
                 }
             }
-            depth++;
         }
         return null;
     }
@@ -170,19 +179,20 @@ public class sixDegreesOfSeparation {
         titlesVisited = Collections.synchronizedSet(new HashSet<String>(5430168, (float) 1.0));
         actorsVisited = Collections.synchronizedSet(new HashSet<String>(8977203, (float) 1.0));
 
-        spark = SparkSession
-                .builder()
-                .master("local")
-                .appName("Page Rank With Taxation")
-                .getOrCreate();
+//        spark = SparkSession
+//                .builder()
+//                .appName("Page Rank With Taxation")
+//                ;
+        spark = new SparkContext(new SparkConf().setAppName("Find"));
+        sparksql = new SQLContext(spark);
 
         JavaPairRDD<String, String> crewLines = makeRDD(crewDataFile);
         JavaPairRDD<String, String> titleLines = makeRDD(titleDataFile);
 
-        crewTable = spark.createDataset(crewLines.collect(), Encoders.tuple(Encoders.STRING(), Encoders.STRING())).toDF("id","assoc");
+        crewTable = sparksql.createDataset(crewLines.collect(), Encoders.tuple(Encoders.STRING(), Encoders.STRING())).toDF("id","assoc");
         crewTable.createOrReplaceGlobalTempView("crew_T");
 
-        titleTable = spark.createDataset(titleLines.collect(), Encoders.tuple(Encoders.STRING(), Encoders.STRING())).toDF("id","assoc");
+        titleTable = sparksql.createDataset(titleLines.collect(), Encoders.tuple(Encoders.STRING(), Encoders.STRING())).toDF("id","assoc");
         titleTable.createOrReplaceGlobalTempView("title_T");
 
         sourceID = getCrewID(args[2]);
@@ -203,9 +213,38 @@ public class sixDegreesOfSeparation {
             output = "Cant find path";
         }
 
-        BufferedWriter writer = new BufferedWriter(new FileWriter(hdfs+"/relations/" + args[0]));
-        writer.write(output);
-        writer.close();
+        System.out.println(output);
+//        spark.
+//        BufferedWriter writer = new BufferedWriter(new FileWriter("results.txt"));
+//        writer.write(output);
+//        writer.close();
+
+//        InputStream in = new BufferedInputStream(new FileInputStream(localSrc));
+//
+////Get configuration of Hadoop system
+        Configuration conf = new Configuration();
+        conf.set("fs.defaultFS", hdfs);
+        System.out.println("Connecting to -- "+conf.get("fs.defaultFS"));
+
+        conf.set("fs.hdfs.impl", org.apache.hadoop.hdfs.DistributedFileSystem.class.getName());
+        conf.set("fs.file.impl", org.apache.hadoop.fs.LocalFileSystem.class.getName());
+
+        //System.setProperty("HADOOP_USER_NAME", "hdfs");
+        System.setProperty("hadoop.home.dir", "/");
+        FileSystem fs = FileSystem.get(URI.create(hdfs), conf);
+
+        Path hdfswritepath = new Path(output + "/" + "results.txt");
+        FSDataOutputStream outputStream=fs.create(hdfswritepath);
+        //Cassical output stream usage
+        outputStream.writeBytes(output);
+        outputStream.close();
+//
+////Destination file in HDFS
+//        FileSystem fs = FileSystem.get(URI.create(dst), conf);
+//        OutputStream out = fs.create(new Path(dst));
+//
+////Copy file from local to HDFS
+//        IOUtils.copyBytes(in, out, 4096, true);
 
 //        Run DFS
 //        ArrayList<String> path = dfs(1, sourceID);
@@ -217,4 +256,5 @@ public class sixDegreesOfSeparation {
 //            previous = path.get(i);
 //        }
     }
+    //The Long Night Brenda Cowling Glyn Houston Betty McDowall
 }
