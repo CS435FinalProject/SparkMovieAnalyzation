@@ -22,7 +22,7 @@ import java.util.regex.Pattern;
 
 public class sixDegreesOfSeparation {
     public static SparkSession spark;
-    private static String hdfs = "hdfs://raleigh:30101";
+    private static String hdfs = "";
     static String crewDataFile  = "src/main/resources/actors";
     static String titleDataFile = "src/main/resources/movies";
     private static final Pattern TAB = Pattern.compile("\t");
@@ -41,8 +41,8 @@ public class sixDegreesOfSeparation {
                 mapToPair( s -> {
                     s = s.replaceAll("[()\\[\\]]", "");
                     String[] parts = TAB.split(s);
-                    int idOrder = (whichFile == crewDataFile) ? 0 : 1;
-                    int nameOrder = (whichFile == crewDataFile) ? 1 : 0;
+                    int idOrder = (whichFile.equals(crewDataFile)) ? 0 : 1;
+                    int nameOrder = (whichFile.equals(crewDataFile)) ? 1 : 0;
                     String name = parts[idOrder];
                     String id   = parts[nameOrder];
 
@@ -80,7 +80,10 @@ public class sixDegreesOfSeparation {
         public String extractName(String id) {
             String tableToUse = (id.charAt(0) == 'n') ? "crew" : "title";
             Dataset<Row> row = spark.sql("SELECT assoc FROM global_temp." + tableToUse + "_T WHERE id='" + id + "'");
+            if(row.collectAsList().size() == 0)
+                return new String();
             String[] attributes = row.collectAsList().get(0).toString().split("__");
+
             return attributes[0].substring(1, attributes[0].length());
         }
 
@@ -119,7 +122,8 @@ public class sixDegreesOfSeparation {
     public static ArrayList<Node> getChildren(Node parent) {
         String whichTable = (parent.getValue().charAt(0) == 'n') ? "crew" : "title";
         Dataset<Row> row = spark.sql("SELECT assoc FROM global_temp." + whichTable + "_T WHERE id='" + parent.getValue() + "'");
-
+        if(row.collectAsList().size() == 0)
+            return new ArrayList<Node>();
         String[] parts = row.collectAsList().get(0).toString().split("__");
         String[] associationsArray = parts[1].split(",");
         ArrayList<Node> associationsList = new ArrayList<>();
@@ -141,28 +145,37 @@ public class sixDegreesOfSeparation {
         Queue<Node> nodes = new LinkedList<>();
         actorsVisited.add(root.getValue());
         nodes.offer(root);
-
+        System.out.println("Starting node: "+root.getValue());
         while(!nodes.isEmpty() && depth < 13) {
+            System.out.println("Nodes queue: "+nodes.toString());
             Node node = nodes.poll();
-            for(Node n : getChildren(node)) {
+            System.out.println("Current node: "+node.getValue());
+            for(Node n : getChildren(node)){
+                System.out.println("Visiting node: "+n.getValue());
                 if (n.getValue().equals(destinationID)) {
+                    System.out.println("Found final node!: "+n.getValue());
                     return n;
                 }
                 if(n.isAnActor() && !actorsVisited.contains(n.getValue())) {
+                    System.out.println("    Visiting actor");
                     actorsVisited.add(n.getValue());
                     nodes.add(n);
-                } else if(!n.isAnActor() && !titlesVisited.contains(n.getValue())) {
+                }
+                else if(!n.isAnActor() && !titlesVisited.contains(n.getValue())) {
+                    System.out.println("    Visiting movie");
                     titlesVisited.add(n.getValue());
                     nodes.add(n);
                 }
             }
+            System.out.println("Depth is incrementing from "+Integer.toString(depth)+" to "+Integer.toString(depth+1));
             depth++;
         }
+        System.out.println("Exiting bfs");
         return null;
     }
 
     public static void main(String[] args) throws IOException {
-        if(args.length < 2){
+        if(args.length < 4){
             System.out.println("USAGE: sixDegreesOfSeparation <nameOfFromPerson> <nameOfToPerson>");
         }
         titleDataFile = hdfs+args[0];
@@ -172,8 +185,8 @@ public class sixDegreesOfSeparation {
 
         spark = SparkSession
                 .builder()
-                .master("local")
-                .appName("Page Rank With Taxation")
+//                .master("local")
+                .appName("Six Degrees of Kevin Bacon")
                 .getOrCreate();
 
         JavaPairRDD<String, String> crewLines = makeRDD(crewDataFile);
@@ -203,9 +216,11 @@ public class sixDegreesOfSeparation {
             output = "Cant find path";
         }
 
-        BufferedWriter writer = new BufferedWriter(new FileWriter(hdfs+"/relations/" + args[0]));
-        writer.write(output);
-        writer.close();
+        System.out.println(output);
+
+//        BufferedWriter writer = new BufferedWriter(new FileWriter(args[4]));
+//        writer.write(output);
+//        writer.close();
 
 //        Run DFS
 //        ArrayList<String> path = dfs(1, sourceID);
