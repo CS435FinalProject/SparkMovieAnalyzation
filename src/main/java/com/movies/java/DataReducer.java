@@ -30,11 +30,19 @@ public class DataReducer {
      * Each drop array is an array of indices to be dropped
      * Change values however you see fit
      */
-    private final int[] titleDrop = {1,3,4,5,6,7,8};  //drop originalTitle, isAdult and endYear
+    private final int[] titleDrop = {0,1,3,4,5,6,7,8};  //drop originalTitle, isAdult and endYear
     private final int[] ratingsDrop = {2};   //drop numVotes
-    private final int[] titlePrinciplesDrop = {1,3,4,5};   //drop ordering and job
-    private final int[] crewDrop = {2,3,4,5};    //drop known for titles
+    private final int[] titlePrinciplesDrop = {0,1,3,4,5};   //drop ordering and job
+    private final int[] crewDrop = {0,2,3,4,5};    //drop known for titles
 
+
+    /**
+     * args[0] = output folder
+     * args[1] = titleBasicsFile
+     * args[2] = titlePrinciplesFile
+     * args[3] = nameBasicsFile
+     * args[4] = isHDFS, if true program runs with hdfs string specified in this file
+     */
     public static void main(String[] args) {
         if(args.length > 3) {
             String output = args[0];
@@ -62,7 +70,9 @@ public class DataReducer {
      * @param crewFile is the input file for crew data (From IMDb), this includes name and job category
      */
     public DataReducer(String titlesFile, String titlePrinciplesFile, String crewFile, String output) {
-        this.spark = new SparkContext(new SparkConf().setAppName("Test"));
+        SparkConf conf = new SparkConf().setAppName("Reducer");
+        if(hdfs.equals("")) conf.setMaster("local");
+        this.spark = new SparkContext(conf);
         this.titlesFile = titlesFile;
         this.titlePrinciplesFile = titlePrinciplesFile;
         this.crewFile = crewFile;
@@ -80,23 +90,19 @@ public class DataReducer {
      * @return JavaPairRDD with ID as key and LinkedList of Strings as value
      */
     private JavaPairRDD<String, LinkedList> pairRDDFromFile(String filename, int[] drop) {
-        JavaRDD<String> lines = spark.textFile(filename,1).toJavaRDD();
-        boolean first = true;
+        JavaRDD<String> lines = spark.textFile(filename,10).toJavaRDD();
         return lines.mapToPair((String s) -> {
             LinkedList list = new LinkedList(Arrays.asList(s.split("\t")));
-            String id = list.removeFirst().toString();
-            int curr = 0;
-            int offset = -1;
-            for(int i = 0; i < list.size(); i++) {
-                if(curr < drop.length && i == (drop[curr] + offset)) {
-                    list.remove(i);
-                    offset--;
-                    i--;
-                    curr++;
-                }
+            String id = list.peekFirst().toString();
+            //int curr = 0;
+            int offset = 0;
+            for(int i : drop) {
+                list.remove(i-offset);
+                offset++;
             }
+
             return new Tuple2<>(id, list);
-        }).filter(s -> !s._1.endsWith("t"));
+        });
     }
 
     /**
@@ -105,11 +111,9 @@ public class DataReducer {
      */
     public void reduceData() {
         JavaPairRDD<String, LinkedList> titles = pairRDDFromFile(titlesFile, titleDrop);
-        JavaPairRDD<String, LinkedList> ratings = pairRDDFromFile(ratingsFile, ratingsDrop);
         JavaPairRDD<String, LinkedList> titlePrinciples = pairRDDFromFile(titlePrinciplesFile, titlePrinciplesDrop);
         JavaPairRDD<String, LinkedList> crew = pairRDDFromFile(crewFile, crewDrop);
 
-        reduceTitles(titles, ratings, titlePrinciples);
         reduceCrew(crew, titlePrinciples);
     }
 
@@ -117,32 +121,25 @@ public class DataReducer {
      * reduceTitles reduces data into single file containing info on movie titles
      * joins RDDs to write to text file each movie, i.e title, genre, release year, cast members
      * @param titles the RDD containing info on titles i.e title, genre, release year
-     * @param ratings the RDD containing info on ratings
      * @param titlePrinciples the RDD containing info on the crew in each movie, i.e movie and crew ID's
      */
-    public void reduceTitles(JavaPairRDD<String, LinkedList> titles, JavaPairRDD<String, LinkedList> ratings,
+    public void reduceTitles(JavaPairRDD<String, LinkedList> titles,
                              JavaPairRDD<String, LinkedList> titlePrinciples) {
-//        JavaPairRDD<String, LinkedList> titleCombine = titles.mapValues(s ->{
-//            LinkedList genres = new LinkedList(Arrays.asList(s.get(5).toString().split(",")));
-//            s.set(5, genres);
-//            return s;
-//        });
-        JavaPairRDD<String, Tuple2<String, LinkedList>> joinedTitles = titles.join(titlePrinciples).mapValues(s -> {
+        JavaPairRDD<String, Tuple2<String, LinkedList>> joinedTitles = titles.join(titlePrinciples,10).mapValues(s -> {
             s._1.add(s._2.peekFirst());
             return s._1;
         }).distinct().mapToPair(s ->{
             String title = s._2.remove(0).toString();
             return new Tuple2<>(title, new Tuple2<>(s._1,s._2));
-        });
-        //joinedTitles.coalesce(1).map(s ->"$._1\t$._2._1\t$._2._2")
-        joinedTitles.coalesce(1).saveAsTextFile(output + "/joinedTitles.tsv");
+        }).distinct();
+
 
         JavaRDD<String> stringTitles = joinedTitles.map(
                 s ->{
                     return s._1+"\t"+s._2._1+"\t"+s._2._2;
                 }
         );
-        stringTitles.coalesce(1).saveAsTextFile("output/joinedTitles.tsv");
+        stringTitles.coalesce(1,true).saveAsTextFile(output+"/joinedTitles");
     }
 
     /**
@@ -153,30 +150,25 @@ public class DataReducer {
      * @param titlePrinciples the RDD containing info on the crew in each movie, i.e movie and crew ID's
      */
     public void reduceCrew(JavaPairRDD<String, LinkedList> crew, JavaPairRDD<String, LinkedList> titlePrinciples) {
-//        JavaPairRDD<String, LinkedList> crewCombine = crew.mapValues(s ->{
-//            LinkedList genres = new LinkedList(Arrays.asList(s.get(4).toString().split(",")));
-//            s.set(4,genres);
-//            return s;
-//        });
         JavaPairRDD<String, LinkedList> crewPrinciples = titlePrinciples.mapToPair(s -> {
             String crewID = s._2.peekFirst().toString();
             s._2.set(0, s._1);
             return new Tuple2<>(crewID,s._2);
+        }).reduceByKey((x,y) -> {
+            x.addAll(y);
+            return x;
         });
 
-        JavaPairRDD<String, Tuple2<String,LinkedList>> joinedCrew = crew.join(crewPrinciples).mapValues(s -> {
-            s._1.add(s._2.peekFirst());
+        JavaPairRDD<String, LinkedList> joinedCrew = crew.join(crewPrinciples,10).mapValues(s -> {
+            s._1.addAll(s._2);
             return s._1;
-        }).distinct().mapToPair(s ->{
-           String name = s._2.remove(0).toString();
-           return new Tuple2<>(name, new Tuple2<>(s._1,s._2));
         });
-        //joinedCrew.coalesce(1).saveAsTextFile(output + "/joinedCrew.tsv");
+
         JavaRDD<String> stringCrew = joinedCrew.map(
                 s ->{
-                    return s._1+"\t"+s._2._1+"\t"+s._2._2;
+                    return s._1+"\t"+s._2.removeFirst()+"\t"+s._2;
                 }
         );
-        stringCrew.coalesce(1).saveAsTextFile("output/joinedCrew.tsv");
+        stringCrew.coalesce(1,true).saveAsTextFile(output + "/joinedCrew");
     }
 }
