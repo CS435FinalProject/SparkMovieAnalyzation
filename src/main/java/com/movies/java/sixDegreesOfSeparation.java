@@ -14,12 +14,15 @@ import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Encoders;
 import org.apache.spark.sql.Row;
 
+import java.io.BufferedWriter;
+import java.io.FileWriter;
+import java.io.IOException;
 import java.util.*;
 import java.util.regex.Pattern;
 
 public class sixDegreesOfSeparation {
     public static SparkSession spark;
-
+    private static String hdfs = "hdfs://raleigh:30101";
     static String crewDataFile  = "src/main/resources/actors";
     static String titleDataFile = "src/main/resources/movies";
     private static final Pattern TAB = Pattern.compile("\t");
@@ -38,8 +41,10 @@ public class sixDegreesOfSeparation {
                 mapToPair( s -> {
                     s = s.replaceAll("[()\\[\\]]", "");
                     String[] parts = TAB.split(s);
-                    String name = parts[0];
-                    String id   = parts[1];
+                    int idOrder = (whichFile == crewDataFile) ? 0 : 1;
+                    int nameOrder = (whichFile == crewDataFile) ? 1 : 0;
+                    String name = parts[idOrder];
+                    String id   = parts[nameOrder];
 
                     String[] associations = parts[2].split(", ");
                     String nameIDs = name + "__" + associations[0]; // There's at least one
@@ -156,11 +161,12 @@ public class sixDegreesOfSeparation {
         return null;
     }
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws IOException {
         if(args.length < 2){
             System.out.println("USAGE: sixDegreesOfSeparation <nameOfFromPerson> <nameOfToPerson>");
         }
-
+        titleDataFile = hdfs+args[0];
+        crewDataFile = hdfs+args[1];
         titlesVisited = Collections.synchronizedSet(new HashSet<String>(5430168, (float) 1.0));
         actorsVisited = Collections.synchronizedSet(new HashSet<String>(8977203, (float) 1.0));
 
@@ -179,16 +185,22 @@ public class sixDegreesOfSeparation {
         titleTable = spark.createDataset(titleLines.collect(), Encoders.tuple(Encoders.STRING(), Encoders.STRING())).toDF("id","assoc");
         titleTable.createOrReplaceGlobalTempView("title_T");
 
-        sourceID = getCrewID(args[0]);
-        destinationID = getCrewID(args[1]);
+        sourceID = getCrewID(args[2]);
+        destinationID = getCrewID(args[3]);
 
         // Run BFS
         Node path = bfs();
+        String output = "";
         if(path != null) {
-            System.out.println(path.toString() + " was found in " + path.getDepth()/2 + " people!");
+
+            output = path.toString() + " was found in " + path.getDepth()/2 + " people!";
         }else {
-            System.out.println("Cant find path");
+            output = "Cant find path";
         }
+
+        BufferedWriter writer = new BufferedWriter(new FileWriter(hdfs+"/relations/" + args[0]));
+        writer.write(output);
+        writer.close();
 
 //        Run DFS
 //        ArrayList<String> path = dfs(1, sourceID);
