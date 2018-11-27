@@ -44,8 +44,8 @@ public class sixDegreesOfSeparation {
                     String[] parts = TAB.split(s);
                     int idOrder = (whichFile.equals(crewDataFile)) ? 0 : 1;
                     int nameOrder = (whichFile.equals(crewDataFile)) ? 1 : 0;
-                    String name = parts[idOrder];
-                    String id   = parts[nameOrder];
+                    String name = parts[nameOrder];  //changed name and idorder
+                    String id   = parts[idOrder];   //swaped nameorder and idOrder
 
                     String[] associations = parts[2].split(", ");
                     String nameIDs = name + "__" + associations[0]; // There's at least one
