@@ -182,6 +182,11 @@ public class sixDegreesOfSeparation {
         sourceID = getCrewID(args[0]);
         destinationID = getCrewID(args[1]);
 
+        if (sourceID.isEmpty() || destinationID.isEmpty()) {
+            System.out.println("ERROR: Could not find that person");
+            return;
+        }
+
         // Run BFS
         Node path = bfs();
         if(path != null) {
