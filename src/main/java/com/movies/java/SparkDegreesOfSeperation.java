@@ -61,7 +61,7 @@ public class sixDegreesOfSeparation {
     }
 
     public static String getCrewID(String name, String movie) {
-        System.out.println("Looking for actor "+name+" from "+movie);
+//        System.out.println("Looking for actor "+name+" from "+movie);
         Dataset<Row> movieRow = spark.sql("SELECT id from global_temp.title_T WHERE assoc LIKE '" + movie + "\\_\\_%'");
         List<Row> rowList= movieRow.collectAsList();
         String searchString = "";
@@ -69,7 +69,7 @@ public class sixDegreesOfSeparation {
             searchString+="LIKE '"+name+"\\_\\_%"+r.toString().replaceAll("[\\[\\]]", "")+"%' OR assoc ";
         }
         searchString = searchString.substring(0, searchString.length()-10);
-        System.out.println(searchString);
+//        System.out.println(searchString);
         Dataset<Row> row = spark.sql("SELECT id FROM global_temp.crew_T WHERE assoc "+searchString);
         Row attributes = row.collectAsList().get(0);
         return attributes.get(0).toString();
@@ -79,11 +79,13 @@ public class sixDegreesOfSeparation {
         private Node parent;
         private String value;
         private boolean isActor;
+        private String name;
 
-        Node(Node parent, String value) {
+        Node(Node parent, String value, String name) {
             this.parent = parent;
             this.value = value;
             this.isActor = (parent == null) || (!parent.isActor);
+            this.name = name;
         }
 
         public String getValue() {
@@ -91,7 +93,7 @@ public class sixDegreesOfSeparation {
         }
 
         public String extractName(String id) {
-            System.out.println("In extract name, id is "+id);
+//            System.out.println("In extract name, id is "+id);
 
             if(actorsVisited.containsKey(id)){
                 return actorsVisited.get(id);
@@ -142,15 +144,16 @@ public class sixDegreesOfSeparation {
     }
 
     public static ArrayList<Node> getChildren(Node parent) {
-        System.out.println("In getChildren: "+parent.getValue());
+//        System.out.println("In getChildren: "+parent.getValue());
         String whichTable = (parent.getValue().charAt(0) == 'n') ? "crew" : "title";
-        System.out.println("Choosing from table "+whichTable);
-        Dataset<Row> row = spark.sql("SELECT assoc FROM global_temp." + whichTable + "_T WHERE id='" + parent.getValue() + "'");
+//        System.out.println("Choosing from table "+whichTable);
+        Dataset<Row> row = spark.sql("SELECT id, assoc FROM global_temp." + whichTable + "_T WHERE id='" + parent.getValue() + "'");
         List<Row> rowList = row.collectAsList();
         if(rowList.size() == 0){
             System.out.println("Query returned nothing!");
             return new ArrayList<Node>();
         }
+        String id = rowList.get(0).get(0).toString();
         String[] parts = rowList.get(0).toString().split("__");
         String[] associationsArray = parts[1].split(",");
         ArrayList<Node> associationsList = new ArrayList<>();
@@ -159,49 +162,49 @@ public class sixDegreesOfSeparation {
             if (each.charAt(each.length() - 1) == ']') {
                 each = each.substring(0, each.length() - 1);
             }
-            System.out.println("Found associations: "+each);
-            associationsList.add(new Node(parent, each));
+//            System.out.println("Found associations: "+each);
+            associationsList.add(new Node(parent, each, id));
         }
 
         return associationsList;
     }
 
     public static Node bfs() {
-        Node root = new Node(null, sourceID);
+        Node root = new Node(null, sourceID, null);
 
         int depth = 0;
         Queue<Node> nodes = new LinkedList<>();
         actorsVisited.put(root.getValue(),root.extractName(root.getValue()));
         nodes.offer(root);
-        System.out.println("Starting node: "+root.getValue());
+//        System.out.println("Starting node: "+root.getValue());
         while(!nodes.isEmpty() && depth < 13) {
-            System.out.println("Nodes queue: "+nodes.toString());
+//            System.out.println("Nodes queue: "+nodes.toString());
             Node node = nodes.poll();
-            System.out.println("Current node: "+node.getValue());
+//            System.out.println("Current node: "+node.getValue());
             for(Node n : getChildren(node)){
-                System.out.println("Visiting node: "+n.getValue());
+//                System.out.println("Visiting node: "+n.getValue());
 //                System.out.println("Children are: "+getChildren(n));
                 if (n.getValue().equals(destinationID)) {
                     System.out.println("Found final node!: "+n.getValue());
                     return n;
                 }
                 if(n.isAnActor() && !actorsVisited.containsKey(n.getValue())) {
-                    System.out.println("    Visiting actor");
-                    actorsVisited.put(n.getValue(), n.extractName(n.getValue()));
+//                    System.out.println("    Visiting actor");
+                    actorsVisited.put(n.getValue(), n.name);
                     nodes.add(n);
-                    System.out.println("Added "+n.getValue()+" to queue");
+//                    System.out.println("Added "+n.getValue()+" to queue");
                 }
                 else if(!n.isAnActor() && !titlesVisited.containsKey(n.getValue())) {
-                    System.out.println("    Visiting movie");
-                    titlesVisited.put(n.getValue(), n.extractName(n.getValue()));
+//                    System.out.println("    Visiting movie");
+                    titlesVisited.put(n.getValue(), n.name);
                     nodes.add(n);
-                    System.out.println("Added "+n.getValue()+" to queue");
+//                    System.out.println("Added "+n.getValue()+" to queue");
 
                 }
             }
-            System.out.println("Depth is incrementing from "+Integer.toString(depth)+" to "+Integer.toString(depth+1));
+//            System.out.println("Depth is incrementing from "+Integer.toString(depth)+" to "+Integer.toString(depth+1));
             depth++;
-            System.out.print("At end of iteration, nodes queue is ");
+//            System.out.print("At end of iteration, nodes queue is ");
             for(Node n : nodes)
                 System.out.print(n.getValue()+",");
             System.out.println();
