@@ -21,7 +21,7 @@ import java.net.URI;
 import java.util.*;
 import java.util.regex.Pattern;
 
-public class sixDegreesOfSeparation {
+public class YarnDegreesOfSeparation {
 	public static SparkSession sparkSession;
 	private static String hdfs = "hdfs://raleigh:30101";
 	static String crewDataFile  = "src/main/resources/actors";
@@ -332,7 +332,7 @@ public class sixDegreesOfSeparation {
 
 	public static void main(String[] args) throws IOException {
 		if(args.length < 2){
-			System.out.println("USAGE: sixDegreesOfSeparation <nameOfFromPerson> <nameOfToPerson>");
+			System.out.println("USAGE: YarnDegreesOfSeparation <nameOfFromPerson> <nameOfToPerson>");
 		}
 		if(args[2].equals("false")) hdfs = "";
 		titleDataFile = hdfs+args[0];
