@@ -63,9 +63,14 @@ public class sixDegreesOfSeparation {
     public static String getCrewID(String name, String movie) {
         System.out.println("Looking for actor "+name+" from "+movie);
         Dataset<Row> movieRow = spark.sql("SELECT id from global_temp.title_T WHERE assoc LIKE '" + movie + "\\_\\_%'");
-        String movieID = movieRow.collectAsList().get(0).get(0).toString();
-        System.out.println(movieID);
-        Dataset<Row> row = spark.sql("SELECT id FROM global_temp.crew_T WHERE assoc LIKE '" + name + "\\_\\_%"+movieID+"%'");
+        List<Row> rowList= movieRow.collectAsList();
+        String searchString = "";
+        for(Row r : rowList){
+            searchString+="LIKE '"+name+"\\_\\_%"+r.toString().replaceAll("[\\[\\]]", "")+"%' OR assoc ";
+        }
+        searchString = searchString.substring(0, searchString.length()-10);
+        System.out.println(searchString);
+        Dataset<Row> row = spark.sql("SELECT id FROM global_temp.crew_T WHERE assoc "+searchString);
         Row attributes = row.collectAsList().get(0);
         return attributes.get(0).toString();
     }
@@ -199,6 +204,7 @@ public class sixDegreesOfSeparation {
             System.out.print("At end of iteration, nodes queue is ");
             for(Node n : nodes)
                 System.out.print(n.getValue()+",");
+            System.out.println();
 
         }
         System.out.println("Exiting bfs");
