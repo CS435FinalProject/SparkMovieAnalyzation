@@ -22,19 +22,18 @@ import java.util.*;
 import java.util.regex.Pattern;
 
 public class sixDegreesOfSeparation {
-//	public static SparkContext spark;
-//	public static SQLContext sparksql;
 	public static SparkSession sparkSession;
 	private static String hdfs = "hdfs://raleigh:30101";
 	static String crewDataFile  = "src/main/resources/actors";
 	static String titleDataFile = "src/main/resources/movies";
 	private static final Pattern TAB = Pattern.compile("\t");
 
-	public static String sourceID;
-	public static String destinationID;
+	public static String sourceID = "";
+	public static String destinationID = "";
 
 	public static Dataset<Row> crewTable;
 	public static Dataset<Row> titleTable;
+
 
 	public static Map<String, String> titlesVisited;
 	public static Map<String, String> actorsVisited;
@@ -70,22 +69,39 @@ public class sixDegreesOfSeparation {
 					for(int i = 1; i < associations.length; ++i) {
 						nameIDs += "," + associations[i];
 					}
-					System.out.println("Set: (" + id + "," + nameIDs + ")");
 					return new Tuple2<>(id, nameIDs);
 				});
 	}
 
-	public static String getCrewID(String name, String movie) {
-		Dataset<Row> row = sparkSession.sql("SELECT id FROM global_temp.crew_T WHERE assoc LIKE '" + name + "__%'");
-		Row attributes = row.collectAsList().get(0);
-		return attributes.get(0).toString();
-	}
+//	public static void createHashset(String filename, boolean isCrew, String crew1, String crew2) throws IOException {
+//		BufferedReader bf = new BufferedReader(new FileReader(filename));
+//		String line;
+//		while ((line = bf.readLine()) != null) {
+//			String[] arr = line.split("\t");
+//			if(isCrew) {
+//				System.out.println("ARR: " + Arrays.toString(arr));
+//				System.out.println("ARGS: " + crew1 + " " + crew2);
+//				if(arr[1].equals(crew1)) sourceID = arr[0];
+//				if(arr[1].equals(crew2)) destinationID = arr[0];
+//				actors.put(arr[0],new Tuple2<>(arr[1],arr[2].split(",")));
+//			}
+//			else {
+//				System.out.println("ARRTitle: " + Arrays.toString(arr));
+//				System.out.println("ARGS: " + crew1 + " " + crew2);
+//				titles.put(arr[1],new Tuple2<>(arr[0],arr[2].split(",")));
+//			}
+//		}
+//	}
+
+
 
 	public static class Node {
 		private Node parent;
 		private String value;
+		private String name;
 		private boolean isActor;
 		private int depth;
+		private ArrayList<Node> children;
 
 		Node(Node parent, String value) {
 			this.parent = parent;
@@ -100,6 +116,13 @@ public class sixDegreesOfSeparation {
 		public String getValue() {
 			return this.value;
 		}
+
+		public void setName(String name) { this.name = name;}
+		public String getName() { return this.name; }
+
+		public void setChildren(ArrayList<Node> children) { this.children = children; }
+
+		public ArrayList<Node> getChildren() { return this.children; }
 
 		public String extractName(String id) {
 			if(id.charAt(0) == 'n') {
@@ -118,7 +141,7 @@ public class sixDegreesOfSeparation {
 		}
 
 		public String toString() {
-			String currentName = extractName(this.value);
+			String currentName = name;
 
 			if(parent == null) {
 				return currentName + " was in";
@@ -148,17 +171,117 @@ public class sixDegreesOfSeparation {
 		}
 	}
 
+	public static String getCrewID(String name, String movie) {
+//		Dataset<Row> row = sparkSession.sql("SELECT id FROM global_temp.crew_T WHERE assoc LIKE '" + name + "__%'");
+//		Row attributes = row.collectAsList().get(0);
+//		return attributes.get(0).toString();
+		System.out.println("Looking for actor "+name+" from "+movie);
+		Dataset<Row> movieRow = sparkSession.sql("SELECT id from global_temp.title_T WHERE assoc LIKE '" + movie + "\\_\\_%'");
+		List<Row> rowList= movieRow.collectAsList();
+		String searchString = "";
+		for(Row r : rowList){
+			searchString+="LIKE '"+name+"\\_\\_%"+r.toString().replaceAll("[\\[\\]]", "")+"%' OR assoc ";
+		}
+		searchString = searchString.substring(0, searchString.length()-10);
+		System.out.println(searchString);
+		Dataset<Row> row = sparkSession.sql("SELECT id FROM global_temp.crew_T WHERE assoc "+searchString);
+		Row attributes = row.collectAsList().get(0);
+		return attributes.get(0).toString();
+
+	}
+
+	public static void manyChildren(ArrayList<Node> nodes, boolean isCrew) {
+		String whichTable = "";
+		if(isCrew) whichTable = "crew";
+		else whichTable = "title";
+		String searchString = "SELECT id,assoc FROM global_temp." + whichTable + "_T WHERE id=''";
+		for(Node n : nodes) {
+			searchString += " OR id='" + n.getValue() + "'";
+		}
+		Dataset<Row> row =sparkSession.sql(searchString);
+		List<Row> rowCollect = row.collectAsList();
+		ArrayList<Node> children = new ArrayList<Node>();
+
+		for(Node node : nodes) {
+			for(Row r : rowCollect) {
+				String id = r.get(0).toString();
+				if(id.equals(node.getValue())) {
+					String[] parts = r.get(1).toString().split("__");
+					String[] associationsArray = parts[1].split(",");
+					node.setName(parts[0]);
+					ArrayList<Node> associationsList = new ArrayList<>();
+					for (String each : associationsArray) {
+						if (each.charAt(each.length() - 1) == ']') {
+							each = each.substring(0, each.length() - 1);
+						}
+						if (each.charAt(0) =='[') {
+							each = each.substring(1);
+						}
+						associationsList.add(new Node(node, each));
+					}
+					node.setChildren(associationsList);
+				}
+			}
+		}
+
+	}
+
 
 	public static ArrayList<Node> getChildren(Node parent) {
 		String whichTable = (parent.getValue().charAt(0) == 'n') ? "crew" : "title";
 		Dataset<Row> row = sparkSession.sql("SELECT assoc FROM global_temp." + whichTable + "_T WHERE id='" + parent.getValue() + "'");
 		List<Row> rowl = row.collectAsList();
-		//System.out.println(row.as([String]));
-//		String test = row.first().
+
+//		ArrayList<Node> nodes = new ArrayList<>();
+//		String searchString = "SELECT id,assoc FROM global_temp.\" + whichTable + \"_T WHERE id='" + nodes.get(0).getValue() + "'";
+//		Node head = nodes.remove(0);
+//		//Dataset<Row> row = sparkSession.sql("SELECT assoc FROM global_temp." + whichTable + "_T WHERE id='" + parent.getValue() + "'");
+//		for(Node n : nodes) {
+//			searchString += " OR id='" + n.getValue() + "'";
+//		}
+//
+//		Dataset<Row> row =sparkSession.sql(searchString);
+//		List<Row> rowCollect = row.collectAsList();
+//		if(rowCollect.size() > 0) return new ArrayList<>();
+//		nodes.add(0,head);
+//		int index = 0;
+//		for(Row r : rowCollect) {
+//			String id = r.get(0).toString();
+//			String[] parts = r.get(1).toString().split("__")
+//			String[] associationsArray = parts[1].split(",");
+//			ArrayList<Node> associationsList = new ArrayList<>();
+//			for (String each : associationsArray) {
+//				if (each.charAt(each.length() - 1) == ']') {
+//					each = each.substring(0, each.length() - 1);
+//				}
+//				associationsList.add(new Node(parent, each));
+//			}
+//			nodes.get(index).setChildren(associationsList);
+//		}
+
+
+
+//		System.out.println(row.as([String]));
 //		System.out.println("ROW: " + row);
+//
+//		String[] childs;
+//		if(parent.getValue().charAt(0) == 'n') {
+//			if(actors.containsKey(parent.getValue())) childs = actors.get(parent.getValue())._2;
+//			else return new ArrayList<>();
+//		}else {
+//			if(titles.containsKey(parent.getValue())) childs = titles.get(parent.getValue())._2;
+//			else return new ArrayList<>();
+//		}
+//		ArrayList<Node> nodes = new ArrayList<>(childs.length);
+//		for(String c : childs) {
+//			nodes.add(new Node(parent, c));
+//		}
+//		return nodes;
+
 		if(rowl.size() == 0) return new ArrayList<Node>();
 		String[] parts = rowl.get(0).toString().split("__");
 		String[] associationsArray = parts[1].split(",");
+		parent.setName(parts[0]);
 		ArrayList<Node> associationsList = new ArrayList<>();
 
 		for (String each : associationsArray) {
@@ -176,27 +299,36 @@ public class sixDegreesOfSeparation {
 
 		int depth = 0;
 		Queue<Node> nodes = new LinkedList<>();
-		actorsVisited.put(root.getValue(), root.extractName(root.getValue()));
+		actorsVisited.put(root.getValue(), root.getName());
+		//ArrayList<Node> rootList = new ArrayList<>();
+		root.setChildren(getChildren(root));
 		nodes.offer(root);
 
 		while(!nodes.isEmpty()) {
 			Node node = nodes.poll();
+//			for(Node n : node.getChildren()) {
+//				System.out.print(n.getValue() + " ");
+//			}
+//			System.out.println();
+			manyChildren(node.getChildren(), !node.isAnActor());
 			if(node.myDepth() >= 13) break;
-			for(Node n : getChildren(node)) {
+			System.out.println("NODE: " + node.getValue());
+			for(Node n : node.getChildren()) {
 				if (n.getValue().equals(destinationID)) {
 					return n;
 				}
 				if(n.isAnActor() && !actorsVisited.containsKey(n.getValue())) {
-					actorsVisited.put(n.getValue(), n.extractName(n.getValue()));
+					actorsVisited.put(n.getValue(), n.getName());
 					nodes.add(n);
 				} else if(!n.isAnActor() && !titlesVisited.containsKey(n.getValue())) {
-					titlesVisited.put(n.getValue(), n.extractName(n.getValue()));
+					titlesVisited.put(n.getValue(), n.getName());
 					nodes.add(n);
 				}
 			}
 		}
 		return null;
 	}
+
 
 	public static void main(String[] args) throws IOException {
 		if(args.length < 2){
@@ -205,8 +337,11 @@ public class sixDegreesOfSeparation {
 		if(args[2].equals("false")) hdfs = "";
 		titleDataFile = hdfs+args[0];
 		crewDataFile = hdfs+args[1];
-		titlesVisited = Collections.synchronizedMap(new HashMap<String, String>(5430168, (float) 1.0));
-		actorsVisited = Collections.synchronizedMap(new HashMap<String, String>(8977203, (float) 1.0));
+//		titles = Collections.synchronizedMap(new HashMap<String, Tuple2<String, String[]>>());
+//		actors = Collections.synchronizedMap(new HashMap<String, Tuple2<String, String[]>>());
+
+		titlesVisited = Collections.synchronizedMap(new HashMap<String,String>());
+		actorsVisited = Collections.synchronizedMap(new HashMap<String,String>());
 
 //        spark = SparkSession
 //                .builder()
@@ -230,6 +365,9 @@ public class sixDegreesOfSeparation {
 		titleTable = sparkSession.createDataset(titleLines.collect(), Encoders.tuple(Encoders.STRING(), Encoders.STRING())).toDF("id","assoc");
 		titleTable.createOrReplaceGlobalTempView("title_T");
 
+//		createHashset(crewDataFile, true, args[3], args[5]);
+//		createHashset(titleDataFile, false, "","");
+
 		sourceID = getCrewID(args[3], args[4]);
 		destinationID = getCrewID(args[5], args[6]);
 
@@ -243,7 +381,7 @@ public class sixDegreesOfSeparation {
 		String output = "";
 		if(path != null) {
 
-			output = path.toString() + " was found in " + path.getDepth()/2 + " people!";
+			output = path.toString() + " was found in " + path.getDepth()/2 + " steps!";
 		}else {
 			output = "Cant find path";
 		}
