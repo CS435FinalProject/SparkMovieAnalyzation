@@ -24,8 +24,9 @@ import java.util.regex.Pattern;
 public class YarnDegreesOfSeparation {
 	public static SparkSession sparkSession;
 	private static String hdfs = "hdfs://raleigh:30101";
-	static String crewDataFile  = "src/main/resources/actors";
-	static String titleDataFile = "src/main/resources/movies";
+//	static String crewDataFile  = "src/main/resources/actors";
+//	static String titleDataFile = "src/main/resources/movies";
+	static String inputFolder ="";
 	private static final Pattern TAB = Pattern.compile("\t");
 
 	public static String sourceID = "";
@@ -334,42 +335,35 @@ public class YarnDegreesOfSeparation {
 		if(args.length < 2){
 			System.out.println("USAGE: YarnDegreesOfSeparation <nameOfFromPerson> <nameOfToPerson>");
 		}
-		if(args[2].equals("false")) hdfs = "";
-		titleDataFile = hdfs+args[0];
-		crewDataFile = hdfs+args[1];
-//		titles = Collections.synchronizedMap(new HashMap<String, Tuple2<String, String[]>>());
-//		actors = Collections.synchronizedMap(new HashMap<String, Tuple2<String, String[]>>());
+		if(args[5].equals("false")) hdfs = "";
+		inputFolder = hdfs+args[0];
+		//titleDataFile = hdfs+args[0];
+		//crewDataFile = hdfs+args[1];
 
 		titlesVisited = Collections.synchronizedMap(new HashMap<String,String>());
 		actorsVisited = Collections.synchronizedMap(new HashMap<String,String>());
 
-//        spark = SparkSession
-//                .builder()
-//                .appName("Page Rank With Taxation")
-//                ;
-//		SparkConf conf = new SparkConf().setAppName("Six Degrees of Separation");
-//
-//		if(hdfs.equals("")) conf.setMaster("local");
-//		spark = new SparkContext(conf);
-
-
 		if(hdfs.equals("")) sparkSession =  SparkSession.builder().master("local").appName("Six Degrees").getOrCreate();
 		else sparkSession =  SparkSession.builder().appName("Six Degrees").getOrCreate();
 
-		JavaPairRDD<String, String> crewLines = makeRDD(crewDataFile, true);
-		JavaPairRDD<String, String> titleLines = makeRDD(titleDataFile, false);
 
-		crewTable = sparkSession.createDataset(crewLines.collect(), Encoders.tuple(Encoders.STRING(), Encoders.STRING())).toDF("id","assoc");
-		crewTable.createOrReplaceGlobalTempView("crew_T");
+		JavaRDD<String> lines = sparkSession.read().textFile(hdfs).toJavaRDD();
+		JavaPairRDD<String, Node> =
 
-		titleTable = sparkSession.createDataset(titleLines.collect(), Encoders.tuple(Encoders.STRING(), Encoders.STRING())).toDF("id","assoc");
-		titleTable.createOrReplaceGlobalTempView("title_T");
+//		JavaPairRDD<String, String> crewLines = makeRDD(crewDataFile, true);
+//		JavaPairRDD<String, String> titleLines = makeRDD(titleDataFile, false);
+//
+//		crewTable = sparkSession.createDataset(crewLines.collect(), Encoders.tuple(Encoders.STRING(), Encoders.STRING())).toDF("id","assoc");
+//		crewTable.createOrReplaceGlobalTempView("crew_T");
+//
+//		titleTable = sparkSession.createDataset(titleLines.collect(), Encoders.tuple(Encoders.STRING(), Encoders.STRING())).toDF("id","assoc");
+//		titleTable.createOrReplaceGlobalTempView("title_T");
 
 //		createHashset(crewDataFile, true, args[3], args[5]);
 //		createHashset(titleDataFile, false, "","");
 
-		sourceID = getCrewID(args[3], args[4]);
-		destinationID = getCrewID(args[5], args[6]);
+		sourceID = getCrewID(args[1], args[2]);
+		destinationID = getCrewID(args[3], args[4]);
 
 		if (sourceID.isEmpty() || destinationID.isEmpty()) {
 			System.out.println("ERROR: Could not find that person");
@@ -407,7 +401,7 @@ public class YarnDegreesOfSeparation {
 			System.setProperty("hadoop.home.dir", "/");
 			FileSystem fs = FileSystem.get(URI.create(hdfs), hconf);
 
-			Path hdfswritepath = new Path(output + "/" + "results.txt");
+			Path hdfswritepath = new Path(hdfs + "/" + "results.txt");
 			FSDataOutputStream outputStream = fs.create(hdfswritepath);
 			//Cassical output stream usage
 			outputStream.writeBytes(output);
