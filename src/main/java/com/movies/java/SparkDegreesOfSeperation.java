@@ -20,7 +20,7 @@ import java.io.IOException;
 import java.util.*;
 import java.util.regex.Pattern;
 
-public class sixDegreesOfSeparation {
+public class SparkDegreesOfSeperation {
     public static SparkSession spark;
     private static String hdfs = "";
     static String crewDataFile  = "src/main/resources/actors";
@@ -177,7 +177,7 @@ public class sixDegreesOfSeparation {
         actorsVisited.put(root.getValue(),root.extractName(root.getValue()));
         nodes.offer(root);
 //        System.out.println("Starting node: "+root.getValue());
-        while(!nodes.isEmpty() && depth < 13) {
+        while(!nodes.isEmpty()) {
 //            System.out.println("Nodes queue: "+nodes.toString());
             Node node = nodes.poll();
 //            System.out.println("Current node: "+node.getValue());
@@ -203,11 +203,11 @@ public class sixDegreesOfSeparation {
                 }
             }
 //            System.out.println("Depth is incrementing from "+Integer.toString(depth)+" to "+Integer.toString(depth+1));
-            depth++;
+//            depth++;
 //            System.out.print("At end of iteration, nodes queue is ");
-            for(Node n : nodes)
-                System.out.print(n.getValue()+",");
-            System.out.println();
+//            for(Node n : nodes)
+//                System.out.print(n.getValue()+",");
+//            System.out.println();
 
         }
         System.out.println("Exiting bfs");
@@ -216,7 +216,7 @@ public class sixDegreesOfSeparation {
 
     public static void main(String[] args) throws IOException {
         if(args.length < 4){
-            System.out.println("USAGE: sixDegreesOfSeparation <nameOfFromPerson> <nameOfToPerson>");
+            System.out.println("USAGE: SparkDegreesOfSeperation <nameOfFromPerson> <nameOfToPerson>");
         }
         titleDataFile = args[0];
         crewDataFile  = args[1];
