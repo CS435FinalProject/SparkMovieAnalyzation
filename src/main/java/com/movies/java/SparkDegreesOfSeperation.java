@@ -17,19 +17,19 @@ import org.apache.spark.sql.Row;
 import java.io.BufferedWriter;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.io.Serializable;
 import java.util.*;
 import java.util.regex.Pattern;
 
+import static org.apache.hadoop.yarn.util.StringHelper.join;
+
 public class SparkDegreesOfSeperation {
     public static SparkSession spark;
-    private static String hdfs = "";
-    static String dataDirectory;
+    public static String dataDirectory;
     private static final Pattern TAB = Pattern.compile("\t");
 
-    private static String sourceName;
-    private static String destinationName;
-    public static String sourceID;
-    public static String destinationID;
+    public static String sourceName;
+    public static String destinationName;
 
     public static JavaPairRDD<String, Node> rdd;
 
@@ -44,48 +44,87 @@ public class SparkDegreesOfSeperation {
                     String[] parts = TAB.split(s);
                     id       = parts[0];
                     name     = parts[1];
-                    parts[2] = parts[2].substring(1,parts[2].length()-2);
+                    parts[2] = parts[2].substring(1,parts[2].length()-1);
 
                     LinkedList associations = new LinkedList(Arrays.asList(parts[2].split(", ")));
                     int status = 0;
                     if(name.equals(sourceName)) status = 1;
 
-                    Node newNode = new Node(null, name, associations, status);
+                    Node newNode = new Node(null, name, id, associations, status);
 
                     return new Tuple2<>(id, newNode);
                 });
     }
 
-    public static String getCrewID(String name, String movie) {
-//        System.out.println("Looking for actor "+name+" from "+movie);
-        Dataset<Row> movieRow = spark.sql("SELECT id from global_temp.title_T WHERE assoc LIKE '" + movie + "\\_\\_%'");
-        List<Row> rowList= movieRow.collectAsList();
-        String searchString = "";
-        for(Row r : rowList){
-            searchString+="LIKE '"+name+"\\_\\_%"+r.toString().replaceAll("[\\[\\]]", "")+"%' OR assoc ";
-        }
-        searchString = searchString.substring(0, searchString.length()-10);
-//        System.out.println(searchString);
-        Dataset<Row> row = spark.sql("SELECT id FROM global_temp.crew_T WHERE assoc "+searchString);
-        Row attributes = row.collectAsList().get(0);
-        return attributes.get(0).toString();
+    public static JavaPairRDD<String, Node> filterRDD(String filterBy, boolean isActor) {
+        return rdd.filter(
+                (id_Node) -> id_Node._2.getName().equals(filterBy)
+        ).flatMapToPair(x -> {
+            List<Tuple2<String, Node>> nodes = new ArrayList<>();
+            for(String s: x._2.associations){
+                if(isActor) nodes.add( new Tuple2<>(s, x._2));
+                else nodes.add(new Tuple2<>(x._2.getID(), x._2));
+            }
+            return nodes.iterator();
+        });
     }
 
-    public static class Node {
+
+    public static Node getCrewID(String name, String movie) {
+        JavaPairRDD<String, Node> crewWithName = filterRDD(name, true);
+
+        JavaPairRDD<String, Node> moviesWithName = filterRDD(movie, false);
+
+        JavaPairRDD<String, Tuple2<Node,Node>> joined = crewWithName.join(moviesWithName);
+        if(joined.count() > 0) {
+            return joined.take(1).get(0)._2._1;
+        }else return null;
+
+
+//        crewWithName.foreach(s -> {System.out.println(s);});
+//
+//        if (crewWithName.count() == 1) {
+//            Tuple2<String, Node> first = crewWithName.first();
+//            finalCrew = first._2;
+//        } else {
+//            JavaPairRDD<String, Node> moviesWithName = rdd.filter(
+//                    (id_Node) -> id_Node._2.getName().equals(name)
+//            );
+//            crewWithName = crewWithName.filter(x -> x._2.getID().equals(moviesWithName));
+//            System.out.println("After multiple people with name=" + name + ", there are " + crewWithName.count() + " people with that name in movie=" + movie);
+//            finalCrew = crewWithName.first()._2;
+//        }
+//        finalCrew.setDepth(0);
+//        return finalCrew;
+    }
+
+
+    public static class Node implements Serializable {
         private Node parent;
         private String name;
+        private String id;
         private int distance;
         private int status;
         private boolean isActor;
         private LinkedList<String> associations;
+        private int depth;
 
 
-        Node(Node parent, String name, LinkedList<String> associations, int status) {
+        Node(Node parent, String name, String id, LinkedList<String> associations, int status) {
             this.associations = associations;
             this.parent = parent;
             this.isActor = (parent == null) || (!parent.isActor);
             this.name = name;
+            this.id = id;
             this.status = status;
+        }
+
+        public String getName() {
+            return this.name;
+        }
+
+        public String getID() {
+            return this.id;
         }
 
         public boolean isAnActor() {
@@ -93,13 +132,15 @@ public class SparkDegreesOfSeperation {
         }
 
         public int getDepth() {
-            Node curr = this;
-            int i = 0;
-            while (curr.parent != null) {
-                i++;
-                curr = curr.parent;
-            }
-            return i;
+            return this.parent.getDepth() + 1;
+        }
+
+        public void setDepth(int depth) {
+            this.depth = depth;
+        }
+
+        public String toString() {
+            return "Name: " + this.name + " Id: " + this.id;
         }
     }
 
@@ -180,6 +221,10 @@ public class SparkDegreesOfSeperation {
         }
         dataDirectory = args[0];
         sourceName    = args[1];
+        String sourceMovie = args[2];
+        destinationName = args[3];
+        String destinationMovie = args[4];
+
         titlesVisited = Collections.synchronizedMap(new HashMap<String, String>());
         actorsVisited = Collections.synchronizedMap(new HashMap<String, String>());
 
@@ -190,11 +235,18 @@ public class SparkDegreesOfSeperation {
                 .getOrCreate();
 
         rdd = makeRDD(dataDirectory);
-        rdd.foreach(
-                s->{
-                    System.out.println(s);
-                }
-        );
+//        rdd.foreach(
+//                s->{
+//                    System.out.println(s);
+//                }
+//        );
+
+        Node sourceNode = getCrewID(sourceName, sourceMovie);
+        System.out.println(sourceNode);
+
+        Node destinationNode = getCrewID(destinationName, destinationMovie);
+        System.out.println(destinationNode);
+
 
 //        JavaPairRDD<String, String> crewLines = makeRDD(crewDataFile, false);
 //        List<Tuple2<String, String>> crewLinesOut = crewLines.take(10);
