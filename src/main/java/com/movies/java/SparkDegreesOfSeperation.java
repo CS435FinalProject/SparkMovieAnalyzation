@@ -39,6 +39,7 @@ public class SparkDegreesOfSeperation {
 
     public static Node sourceNode;
     public static Node destinationNode;
+    public static Node friendOfDestNode;
 
     public static LongAccumulator counter;
 
@@ -86,22 +87,6 @@ public class SparkDegreesOfSeperation {
             return joined.take(1).get(0)._2._1;
         }else return null;
 
-
-//        crewWithName.foreach(s -> {System.out.println(s);});
-//
-//        if (crewWithName.count() == 1) {
-//            Tuple2<String, Node> first = crewWithName.first();
-//            finalCrew = first._2;
-//        } else {
-//            JavaPairRDD<String, Node> moviesWithName = rdd.filter(
-//                    (id_Node) -> id_Node._2.getName().equals(name)
-//            );
-//            crewWithName = crewWithName.filter(x -> x._2.getID().equals(moviesWithName));
-//            System.out.println("After multiple people with name=" + name + ", there are " + crewWithName.count() + " people with that name in movie=" + movie);
-//            finalCrew = crewWithName.first()._2;
-//        }
-//        finalCrew.setDepth(0);
-//        return finalCrew;
     }
 
 
@@ -147,29 +132,33 @@ public class SparkDegreesOfSeperation {
         }
 
         public String toString() {
-            return "Name: " + this.name + " Id: " + this.id;
+            return "Name: " + this.name + " Id: " + this.id +" Status: "+ this.status;
         }
     }
 
     public static Iterator<Tuple2<String, Node>> mapNode(Node node){
-        ArrayList<Tuple2> results = new ArrayList<Tuple2>();
+        ArrayList<Tuple2> results = new ArrayList<>();
 
-        if(node.status == 0) {
+        if(node.status == 1) {
             for(String connection : node.associations){
                 String id       = connection;
+
                 int newDistance = node.distance + 1;
 
                 if(destinationNode.id.equals(connection)){
-                    System.out.println("Found actor "+destinationName+"in "+newDistance+" steps");
+                    System.out.println("Found actor "+destinationName+" in "+newDistance+" step(s)");
                     counter.add(1);
+                    friendOfDestNode = node;
+                    break;
                 }
                 Tuple2<String, Node> newEntry;
-                newEntry = new Tuple2<>(id, new Node(node, null, id, new LinkedList<String>(), 0, newDistance));
+                newEntry = new Tuple2<>(id, new Node(node, null, id, new LinkedList<String>(), 1, newDistance));
                 results.add(newEntry);
             }
             node.status = 2;
-            results.add(new Tuple2<>(node.id, node));
+
         }
+		results.add(new Tuple2<>(node.id, node));
         List<Tuple2<String, Node>> listResults = (List) results;
 
         return listResults.iterator();
@@ -178,6 +167,8 @@ public class SparkDegreesOfSeperation {
     public static Node reduceNode(Node node1, Node node2){
         int distance = 10000;
         int searchStatus = 3;
+        String name;
+        Node parent;
         LinkedList<String> connections = new LinkedList<>();
 
         //Combine all associations of nodes
@@ -187,10 +178,16 @@ public class SparkDegreesOfSeperation {
         //Save the minimum distance
         distance = node1.distance < node2.distance ? node1.distance : node2.distance;
 
-        //Save the minimum search status
-        searchStatus = node1.status < node2.status ? node1.status : node2.status;
+        //Save the most advanced search status
+        searchStatus = node1.status > node2.status ? node1.status : node2.status;
 
-        return new Node(node1.parent, node1.name, node1.id, connections, searchStatus, distance);
+        //Save parent node
+		parent = node1.parent != null ?  node1.parent : node2.parent;
+
+		//Save the name
+        name   = node1.name != null   ?  node1.name   : node2.name;
+
+        return new Node(parent, name, node1.id, connections, searchStatus, distance);
 
         //need to assign parents in mapNode
         //need to assign distance in Node constructor
@@ -300,12 +297,34 @@ public class SparkDegreesOfSeperation {
         counter = spark.sparkContext().longAccumulator();
 
         for(int i = 0; i < 6; i++){
-            JavaPairRDD<String, Node> mapped = rdd.flatMap(s -> {
+            JavaPairRDD<String, Node> mapped = rdd.flatMapToPair(s -> {
                 return mapNode(s._2);
             } );
+//            System.out.println("Before reduce");
+//			mapped.foreach(s->{System.out.println(s);});
+			mapped.collect();
+            if(counter.value() > 0){
+            	System.out.println(destinationName+" was found "+(i-1) / 2+" degrees away from "+sourceName);
+//				System.out.println("Found connection!");
+            	break;
+			}
+			rdd = mapped.reduceByKey((n1, n2) -> {
+				return reduceNode(n1, n2);
+			});
+//            System.out.println("After reduce");
+//			mapped.foreach(s->{System.out.println(s);});
+//            System.out.println("Iteration "+i);
 
         }
 
+		Node iterNode = friendOfDestNode;
+        System.out.println(destinationName+ " was in "+iterNode.name+" with " +iterNode.parent.name);
+        iterNode = iterNode.parent;
+		while(iterNode.parent != null){
+			System.out.println(iterNode.name+" was in "+iterNode.parent.name+" with "+iterNode.parent.parent.name);
+			iterNode = iterNode.parent.parent;
+
+		}
 
     }
 }
