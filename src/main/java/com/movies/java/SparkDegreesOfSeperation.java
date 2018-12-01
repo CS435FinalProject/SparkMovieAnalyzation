@@ -14,6 +14,7 @@ import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
 import org.apache.commons.lang.ArrayUtils;
 import org.apache.spark.util.AccumulatorV2;
+import org.apache.spark.util.LongAccumulator;
 import scala.Tuple2;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Encoders;
@@ -34,8 +35,10 @@ public class SparkDegreesOfSeperation {
     public static String dataDirectory;
     private static final Pattern TAB = Pattern.compile("\t");
     public static NodeAccumulator nodeAccumulator;
+    public static Node result = new Node(null,"","", new LinkedList<>(), 0, 0);
     public static String sourceName;
     public static String destinationName;
+    public static LongAccumulator longAccumulator;
 
     public static JavaPairRDD<String, Node> rdd;
 
@@ -127,7 +130,7 @@ public class SparkDegreesOfSeperation {
 
         @Override
         public void merge(AccumulatorV2<Node, Node> other) {
-
+            if(this.node == null) node = other.value();
         }
 
         @Override
@@ -168,7 +171,8 @@ public class SparkDegreesOfSeperation {
             list.add(new Tuple2<>(this.id,this));
             if(status == 1) {
                 if(id.equals(find)) {
-                    nodeAccumulator.add(this);
+                    System.out.println(this.toStringRecur(true,true));
+                    longAccumulator.add(1);
                     return list.iterator();
                 }
                 for (String assoc : associations) {
@@ -178,6 +182,8 @@ public class SparkDegreesOfSeperation {
             }
             return list.iterator();
         }
+
+        public boolean isEmpty() { return this.name.equals("") && this.id.equals(""); }
 
         public String getName() {
             return this.name;
@@ -215,12 +221,18 @@ public class SparkDegreesOfSeperation {
             return "Name: " + this.name + " Id: " + this.id + " Status: " + status + " Depth: " + depth + " FIND: " + find + " Parent: " + temp;
         }
 
-        public String toStringRecur(boolean isActor) {
+//        public String stepsFound() {
+//            return this.name + " was found in " + distance / 2 + " steps";
+//        }
+
+        public String toStringRecur(boolean isActor, boolean first) {
             if(this.parent != null) {
                 if(isActor) {
-                    return parent.toStringRecur(!isActor) + " with " + this.name ;
+                    String temp = "";
+                    if(first) temp += " was found in " + distance / 2 + " steps";
+                    return parent.toStringRecur(!isActor, false) + " with " + this.name +"\n" + this.name + temp;
                 }else {
-                    return parent.toStringRecur(!isActor) +" was in " + this.name;
+                    return parent.toStringRecur(!isActor, false) + " was in " + this.name;
                 }
             }else {
                 return this.name;
@@ -261,10 +273,15 @@ public class SparkDegreesOfSeperation {
         if(node1.getAssociations().size() > node2.getAssociations().size()) associations = node1.getAssociations();
         else associations = node2.getAssociations();
         int distance = Math.min(node1.getDistance(), node2.getDistance());
+        if(node1.getParent() == null || node2.getParent() == null) distance = Math.max(node1.getDistance(), node2.getDistance());
         int status = Math.max(node1.getStatus(), node2.getStatus());
         Node parent;
-        if(node1.getParent() != null) parent = node1.getParent();
-        else parent = node2.getParent();
+        if(node1.getParent() != null && node2.getParent() == null) parent = node1.getParent();
+        else if(node2.getParent() != null && node1.getParent() == null) parent = node2.getParent();
+        else {
+            if(node1.getDistance() < node2.getDistance()) parent = node1.getParent();
+            else parent = node2.getParent();
+        }
         String name;
         if(node2.getName().length() > node1.getName().length()) name = node2.getName();
         else name = node1.getName();
@@ -278,9 +295,10 @@ public class SparkDegreesOfSeperation {
         for(int i = 0; i < 13; i++) {
             rdd = rdd.flatMapToPair(x -> x._2.flatMapNode());
             temp = rdd.first();
-            if(!nodeAccumulator.isZero()) break;
+            System.err.println(temp);
             rdd = rdd.reduceByKey(SparkDegreesOfSeperation::reduceNode);
-            rdd.foreach(s -> System.out.println(s));
+            if(!longAccumulator.isZero()) break;
+
         }
     }
 
@@ -385,17 +403,25 @@ public class SparkDegreesOfSeperation {
         //rdd.foreach(n -> n._2.setFind(destinationNode.getID()));
 
         nodeAccumulator = new NodeAccumulator();
-        spark.sparkContext().register(nodeAccumulator, "NodeAccumulator");
+        longAccumulator = new LongAccumulator();
+        spark.sparkContext().register(longAccumulator, "LongAccumulator");
 
         BFS();
-        Node found = nodeAccumulator.value();
-        if(found != null) {
-            System.out.println(found.toStringRecur(true));
+//        spark.sparkContext().collectionAccumulator("NodeAccumulator");
+//        spark.sparkContext().stop();
+//        spark.stop();
+//        Node found = nodeAccumulator.value();
+
+        Node found = rdd.filter(v -> v._2.getID().equals(destinationNode.getID())).first()._2;
+        //System.out.println(found.toString());
+        if(found.getParent() != null) {
+            System.out.println(found.toStringRecur(true, true));
         }else {
             System.out.println("No Path Found!");
         }
 
         if(args.length > 6 ) {
+            rdd.coalesce(5).saveAsTextFile(args[6] + "test/");
 			Configuration hconf = new Configuration();
 			hconf.set("fs.defaultFS", args[6]);
 			System.out.println("Connecting to -- " + hconf.get("fs.defaultFS"));
@@ -407,10 +433,11 @@ public class SparkDegreesOfSeperation {
 			System.setProperty("hadoop.home.dir", "/");
 			FileSystem fs = FileSystem.get(URI.create(args[6]), hconf);
 
-			Path hdfswritepath = new Path(args[6] + "/" + "results.txt");
+			Path hdfswritepath = new Path(args[6] + "/" + sourceName.replaceAll("\\s+","") + "_"
+                    + destinationName.replaceAll("\\s+","") + ".txt");
 			FSDataOutputStream outputStream = fs.create(hdfswritepath);
-			//Cassical output stream usage
-			outputStream.writeBytes(args[6]);
+			if(found.getParent() != null) outputStream.writeBytes(found.toStringRecur(true,true));
+			else outputStream.writeBytes("No Connections Found");
 			outputStream.close();
 		}
 
