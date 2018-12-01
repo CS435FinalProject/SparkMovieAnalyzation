@@ -19,6 +19,7 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.io.Serializable;
 import java.util.*;
+import org.apache.spark.util.LongAccumulator;
 import java.util.regex.Pattern;
 
 import static org.apache.hadoop.yarn.util.StringHelper.join;
@@ -36,6 +37,11 @@ public class SparkDegreesOfSeperation {
     public static Map<String, String> titlesVisited;
     public static Map<String, String> actorsVisited;
 
+    public static Node sourceNode;
+    public static Node destinationNode;
+
+    public static LongAccumulator counter;
+
     public static JavaPairRDD<String, Node> makeRDD(String file) {
         return spark.read().textFile(file).javaRDD().
                 mapToPair( s -> {
@@ -50,7 +56,7 @@ public class SparkDegreesOfSeperation {
                     int status = 0;
                     if(name.equals(sourceName)) status = 1;
 
-                    Node newNode = new Node(null, name, id, associations, status);
+                    Node newNode = new Node(null, name, id, associations, status, 0);
 
                     return new Tuple2<>(id, newNode);
                 });
@@ -110,13 +116,14 @@ public class SparkDegreesOfSeperation {
         private int depth;
 
 
-        Node(Node parent, String name, String id, LinkedList<String> associations, int status) {
+        Node(Node parent, String name, String id, LinkedList<String> associations, int status, int distance) {
             this.associations = associations;
             this.parent = parent;
             this.isActor = (parent == null) || (!parent.isActor);
             this.name = name;
             this.id = id;
             this.status = status;
+            this.distance = distance;
         }
 
         public String getName() {
@@ -143,6 +150,53 @@ public class SparkDegreesOfSeperation {
             return "Name: " + this.name + " Id: " + this.id;
         }
     }
+
+    public static Iterator<Tuple2<String, Node>> mapNode(Node node){
+        ArrayList<Tuple2> results = new ArrayList<Tuple2>();
+
+        if(node.status == 0) {
+            for(String connection : node.associations){
+                String id       = connection;
+                int newDistance = node.distance + 1;
+
+                if(destinationNode.id.equals(connection)){
+                    System.out.println("Found actor "+destinationName+"in "+newDistance+" steps");
+                    counter.add(1);
+                }
+                Tuple2<String, Node> newEntry;
+                newEntry = new Tuple2<>(id, new Node(node, null, id, new LinkedList<String>(), 0, newDistance));
+                results.add(newEntry);
+            }
+            node.status = 2;
+            results.add(new Tuple2<>(node.id, node));
+        }
+        List<Tuple2<String, Node>> listResults = (List) results;
+
+        return listResults.iterator();
+    }
+
+    public static Node reduceNode(Node node1, Node node2){
+        int distance = 10000;
+        int searchStatus = 3;
+        LinkedList<String> connections = new LinkedList<>();
+
+        //Combine all associations of nodes
+        connections.addAll(node1.associations);
+        connections.addAll(node2.associations);
+
+        //Save the minimum distance
+        distance = node1.distance < node2.distance ? node1.distance : node2.distance;
+
+        //Save the minimum search status
+        searchStatus = node1.status < node2.status ? node1.status : node2.status;
+
+        return new Node(node1.parent, node1.name, node1.id, connections, searchStatus, distance);
+
+        //need to assign parents in mapNode
+        //need to assign distance in Node constructor
+
+    }
+
 
 //    public static ArrayList<Node> getChildren(Node parent) {
 ////        System.out.println("In getChildren: "+parent.getValue());
@@ -235,57 +289,23 @@ public class SparkDegreesOfSeperation {
                 .getOrCreate();
 
         rdd = makeRDD(dataDirectory);
-//        rdd.foreach(
-//                s->{
-//                    System.out.println(s);
-//                }
-//        );
 
-        Node sourceNode = getCrewID(sourceName, sourceMovie);
+
+        sourceNode = getCrewID(sourceName, sourceMovie);
         System.out.println(sourceNode);
 
-        Node destinationNode = getCrewID(destinationName, destinationMovie);
+        destinationNode = getCrewID(destinationName, destinationMovie);
         System.out.println(destinationNode);
 
+        counter = spark.sparkContext().longAccumulator();
 
-//        JavaPairRDD<String, String> crewLines = makeRDD(crewDataFile, false);
-//        List<Tuple2<String, String>> crewLinesOut = crewLines.take(10);
-//        for(Tuple2<String, String> s: crewLinesOut)
-//            System.out.println(s);
-//
-//        JavaPairRDD<String, String> titleLines = makeRDD(titleDataFile, true);
-//        List<Tuple2<String, String>> titleLinesOut = titleLines.take(10);
-//        for(Tuple2<String, String> s: titleLinesOut)
-//            System.out.println(s);
-//
-//        crewTable = spark.createDataset(crewLines.collect(), Encoders.tuple(Encoders.STRING(), Encoders.STRING())).toDF("id","assoc");
-//        crewTable.createOrReplaceGlobalTempView("crew_T");
-//
-//        titleTable = spark.createDataset(titleLines.collect(), Encoders.tuple(Encoders.STRING(), Encoders.STRING())).toDF("id","assoc");
-//        titleTable.createOrReplaceGlobalTempView("title_T");
+        for(int i = 0; i < 6; i++){
+            JavaPairRDD<String, Node> mapped = rdd.flatMap(s -> {
+                return mapNode(s._2);
+            } );
 
-//        sourceID = getCrewID(args[2], args[3]);
-//        System.out.println("Source ID is: "+sourceID);
-//
-//        destinationID = getCrewID(args[4], args[5]);
-//        System.out.println("DestinationID is: "+destinationID);
-//
-//        if (sourceID.isEmpty() || destinationID.isEmpty()) {
-//            System.out.println("ERROR: Could not find that person");
-//            return;
-//        }
-//
-//        // Run BFS
-//        Node path = bfs();
-//        String output = "";
-//        if(path != null) {
-//
-//            output = path.toString() + " was found in " + path.getDepth()/2 + " people!";
-//        }else {
-//            output = "Cant find path";
-//        }
-//
-//        System.out.println(output);
+        }
+
 
     }
 }
