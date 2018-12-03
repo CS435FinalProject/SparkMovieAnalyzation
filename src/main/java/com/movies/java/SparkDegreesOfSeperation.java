@@ -8,42 +8,28 @@ import org.apache.hadoop.fs.Path;
 import org.apache.spark.SparkConf;
 import org.apache.spark.SparkContext;
 import org.apache.spark.api.java.JavaPairRDD;
-import org.apache.spark.api.java.JavaRDD;
-import org.apache.spark.sql.Dataset;
-import org.apache.spark.sql.Row;
-import org.apache.spark.sql.SparkSession;
-import org.apache.commons.lang.ArrayUtils;
-import org.apache.spark.util.AccumulatorV2;
-import org.apache.spark.util.LongAccumulator;
-import scala.Tuple2;
-import org.apache.spark.sql.Dataset;
-import org.apache.spark.sql.Encoders;
-import org.apache.spark.sql.Row;
 
-import java.io.BufferedWriter;
-import java.io.FileWriter;
+import org.apache.spark.sql.SparkSession;
+
+import scala.Tuple2;
+
 import java.io.IOException;
 import java.io.Serializable;
 import java.net.URI;
 import java.util.*;
 import java.util.regex.Pattern;
 
-import static org.apache.hadoop.yarn.util.StringHelper.join;
 
 public class SparkDegreesOfSeperation {
     public static SparkSession spark;
     public static String dataDirectory;
     private static final Pattern TAB = Pattern.compile("\t");
-    public static NodeAccumulator nodeAccumulator;
     public static Node result = new Node(null,"","", new LinkedList<>(), 0, 0);
     public static String sourceName;
     public static String destinationName;
-    public static LongAccumulator longAccumulator;
 
     public static JavaPairRDD<String, Node> rdd;
-
-    public static Map<String, String> titlesVisited;
-    public static Map<String, String> actorsVisited;
+    public static Node found;
 
     public static JavaPairRDD<String, Node> makeRDD(String file) {
         return spark.read().textFile(file).javaRDD().
@@ -56,10 +42,8 @@ public class SparkDegreesOfSeperation {
                     parts[2] = parts[2].substring(1,parts[2].length()-1);
 
                     LinkedList associations = new LinkedList(Arrays.asList(parts[2].split(", ")));
-                    int status = 0;
-                    if(name.equals(sourceName)) status = 1;
 
-                    Node newNode = new Node(null, name, id, associations, status, 0);
+                    Node newNode = new Node(null, name, id, associations, 0, 0);
 
                     return new Tuple2<>(id, newNode);
                 });
@@ -88,55 +72,6 @@ public class SparkDegreesOfSeperation {
             return joined.take(1).get(0)._2._1;
         }else return null;
 
-
-//        crewWithName.foreach(s -> {System.out.println(s);});
-//
-//        if (crewWithName.count() == 1) {
-//            Tuple2<String, Node> first = crewWithName.first();
-//            finalCrew = first._2;
-//        } else {
-//            JavaPairRDD<String, Node> moviesWithName = rdd.filter(
-//                    (id_Node) -> id_Node._2.getName().equals(name)
-//            );
-//            crewWithName = crewWithName.filter(x -> x._2.getID().equals(moviesWithName));
-//            System.out.println("After multiple people with name=" + name + ", there are " + crewWithName.count() + " people with that name in movie=" + movie);
-//            finalCrew = crewWithName.first()._2;
-//        }
-//        finalCrew.setDepth(0);
-//        return finalCrew;
-    }
-
-    public static class NodeAccumulator extends AccumulatorV2<Node,Node> {
-        Node node = null;
-        @Override
-        public boolean isZero() {
-            return node == null;
-        }
-
-        @Override
-        public AccumulatorV2<Node, Node> copy() {
-            return null;
-        }
-
-        @Override
-        public void reset() {
-            node = null;
-        }
-
-        @Override
-        public void add(Node v) {
-            node = v;
-        }
-
-        @Override
-        public void merge(AccumulatorV2<Node, Node> other) {
-            if(this.node == null) node = other.value();
-        }
-
-        @Override
-        public Node value() {
-            return node;
-        }
     }
 
     public static class Node implements Serializable{
@@ -145,17 +80,17 @@ public class SparkDegreesOfSeperation {
         private String id;
         private int distance;
         private int status;
-        private boolean isActor;
+//        private boolean isActor;
         private LinkedList<String> associations;
-        private int depth;
-        private Node target;
+//        private int depth;
+//        private Node target;
         private String find;
 
 
         Node(Node parent, String name, String id, LinkedList<String> associations, int status, int distance) {
             this.associations = associations;
             this.parent = parent;
-            this.isActor = (parent == null) || (!parent.isActor);
+//            this.isActor = (parent == null) || (!parent.isActor);
             this.name = name;
             this.id = id;
             this.status = status;
@@ -172,7 +107,7 @@ public class SparkDegreesOfSeperation {
             if(status == 1) {
                 if(id.equals(find)) {
                     System.out.println(this.toStringRecur(true,true));
-                    longAccumulator.add(1);
+//                    longAccumulator.add(1);
                     return list.iterator();
                 }
                 for (String assoc : associations) {
@@ -183,8 +118,6 @@ public class SparkDegreesOfSeperation {
             return list.iterator();
         }
 
-        public boolean isEmpty() { return this.name.equals("") && this.id.equals(""); }
-
         public String getName() {
             return this.name;
         }
@@ -193,23 +126,15 @@ public class SparkDegreesOfSeperation {
             return this.id;
         }
 
-        public boolean isAnActor() {
-            return this.isActor;
-        }
-
-        public int getDepth() {
-            return this.parent.getDepth() + 1;
-        }
-
         public int getDistance() { return this.distance; }
 
         public int getStatus() { return this.status; }
 
+        public void setStatus(int status) { this.status = status; }
+
         public Node getParent() { return this.parent; }
 
-        public void setDepth(int depth) {
-            this.depth = depth;
-        }
+
 
         public void setFind(String find) {this.find = find; }
 
@@ -218,18 +143,14 @@ public class SparkDegreesOfSeperation {
         public String toString() {
             String temp = "";
             if(parent != null) temp = parent.name;
-            return "Name: " + this.name + " Id: " + this.id + " Status: " + status + " Depth: " + depth + " FIND: " + find + " Parent: " + temp;
+            return "Name: " + this.name + " Id: " + this.id + " Status: " + status + " depth: " + distance + " FIND: " + find + " Parent: " + temp;
         }
-
-//        public String stepsFound() {
-//            return this.name + " was found in " + distance / 2 + " steps";
-//        }
 
         public String toStringRecur(boolean isActor, boolean first) {
             if(this.parent != null) {
                 if(isActor) {
                     String temp = "";
-                    if(first) temp += " was found in " + distance / 2 + " steps";
+                    if(first) temp += " was found in " + distance / 2 + " steps\n";
                     return parent.toStringRecur(!isActor, false) + " with " + this.name +"\n" + this.name + temp;
                 }else {
                     return parent.toStringRecur(!isActor, false) + " was in " + this.name;
@@ -242,31 +163,6 @@ public class SparkDegreesOfSeperation {
         public LinkedList<String> getAssociations() { return this.associations; }
     }
 
-//    public static ArrayList<Node> getChildren(Node parent) {
-////        System.out.println("In getChildren: "+parent.getValue());
-//        String whichTable = (parent.getValue().charAt(0) == 'n') ? "crew" : "title";
-////        System.out.println("Choosing from table "+whichTable);
-//        Dataset<Row> row = spark.sql("SELECT id, assoc FROM global_temp." + whichTable + "_T WHERE id='" + parent.getValue() + "'");
-//        List<Row> rowList = row.collectAsList();
-//        if(rowList.size() == 0){
-//            System.out.println("Query returned nothing!");
-//            return new ArrayList<Node>();
-//        }
-//        String id = rowList.get(0).get(0).toString();
-//        String[] parts = rowList.get(0).toString().split("__");
-//        String[] associationsArray = parts[1].split(",");
-//        ArrayList<Node> associationsList = new ArrayList<>();
-//
-//        for (String each : associationsArray) {
-//            if (each.charAt(each.length() - 1) == ']') {
-//                each = each.substring(0, each.length() - 1);
-//            }
-////            System.out.println("Found associations: "+each);
-//            associationsList.add(new Node(parent, each, id));
-//        }
-//
-//        return associationsList;
-//    }
 
     public static Node reduceNode(Node node1, Node node2) {
         LinkedList<String> associations;
@@ -290,63 +186,15 @@ public class SparkDegreesOfSeperation {
     }
 
 
-    public static void BFS() {
-        Tuple2<String, Node> temp;
+    public static void BFS(String id) {
         for(int i = 0; i < 13; i++) {
-            rdd = rdd.flatMapToPair(x -> x._2.flatMapNode());
-            temp = rdd.first();
-            System.err.println(temp);
-            rdd = rdd.reduceByKey(SparkDegreesOfSeperation::reduceNode);
-            if(!longAccumulator.isZero()) break;
+            rdd = rdd.flatMapToPair(x -> x._2.flatMapNode()).reduceByKey(SparkDegreesOfSeperation::reduceNode);
+            found = rdd.filter(v -> v._1.equals(id)).first()._2;
+            //System.out.println(found.toString());
+            if(found.getParent() != null) break;
 
         }
     }
-
-
-//    public static Node bfs() {
-//        Node root = new Node(null, sourceID, null);
-//
-//        int depth = 0;
-//        Queue<Node> nodes = new LinkedList<>();
-//        actorsVisited.put(root.getValue(),root.extractName(root.getValue()));
-//        nodes.offer(root);
-////        System.out.println("Starting node: "+root.getValue());
-//        while(!nodes.isEmpty() && depth < 13) {
-////            System.out.println("Nodes queue: "+nodes.toString());
-//            Node node = nodes.poll();
-////            System.out.println("Current node: "+node.getValue());
-//            for(Node n : getChildren(node)){
-////                System.out.println("Visiting node: "+n.getValue());
-////                System.out.println("Children are: "+getChildren(n));
-//                if (n.getValue().equals(destinationID)) {
-//                    System.out.println("Found final node!: "+n.getValue());
-//                    return n;
-//                }
-//                if(n.isAnActor() && !actorsVisited.containsKey(n.getValue())) {
-////                    System.out.println("    Visiting actor");
-//                    actorsVisited.put(n.getValue(), n.name);
-//                    nodes.add(n);
-////                    System.out.println("Added "+n.getValue()+" to queue");
-//                }
-//                else if(!n.isAnActor() && !titlesVisited.containsKey(n.getValue())) {
-////                    System.out.println("    Visiting movie");
-//                    titlesVisited.put(n.getValue(), n.name);
-//                    nodes.add(n);
-////                    System.out.println("Added "+n.getValue()+" to queue");
-//
-//                }
-//            }
-////            System.out.println("Depth is incrementing from "+Integer.toString(depth)+" to "+Integer.toString(depth+1));
-//            depth++;
-////            System.out.print("At end of iteration, nodes queue is ");
-////            for(Node n : nodes)
-////                System.out.print(n.getValue()+",");
-////            System.out.println();
-//
-//        }
-//        System.out.println("Exiting bfs");
-//        return null;
-//    }
 
     public static void main(String[] args) throws IOException {
         if(args.length < 3){
@@ -358,8 +206,6 @@ public class SparkDegreesOfSeperation {
         destinationName = args[3];
         String destinationMovie = args[4];
 
-//        titlesVisited = Collections.synchronizedMap(new HashMap<String, String>());
-//        actorsVisited = Collections.synchronizedMap(new HashMap<String, String>());
         SparkContext context;
         if(args.length > 5 && args[5].equals("true")) {
             context = new SparkContext(new SparkConf());
@@ -376,20 +222,11 @@ public class SparkDegreesOfSeperation {
                     .getOrCreate();
         }
 
+
         rdd = makeRDD(dataDirectory);
-//        rdd.foreach(
-//                s->{
-//                    System.out.println(s);
-//                }
-//        );
-//        System.out.println("Source: " + sourceName);
-//        System.out.println("Destination: " + destinationName);
-//        System.out.println("Directory: " + dataDirectory);
-//        System.out.println("Source Movie: " + sourceMovie);
-//        System.out.println("Destination Movie: " + destinationMovie);
+
 
         //rdd.foreach(s -> {System.out.println(s._1 + " " + s._2.toString());});
-
         Node sourceNode = getCrewID(sourceName, sourceMovie);
         System.out.println(sourceNode);
 
@@ -397,23 +234,13 @@ public class SparkDegreesOfSeperation {
         System.out.println(destinationNode);
 
         rdd = rdd.mapValues(s -> {
+            if(s.getID().equals(sourceNode.getID())) s.setStatus(1);
             s.setFind(destinationNode.getID());
             return s;
         });
-        //rdd.foreach(n -> n._2.setFind(destinationNode.getID()));
 
-        nodeAccumulator = new NodeAccumulator();
-        longAccumulator = new LongAccumulator();
-        spark.sparkContext().register(longAccumulator, "LongAccumulator");
+        BFS(destinationNode.getID());
 
-        BFS();
-//        spark.sparkContext().collectionAccumulator("NodeAccumulator");
-//        spark.sparkContext().stop();
-//        spark.stop();
-//        Node found = nodeAccumulator.value();
-
-        Node found = rdd.filter(v -> v._2.getID().equals(destinationNode.getID())).first()._2;
-        //System.out.println(found.toString());
         if(found.getParent() != null) {
             System.out.println(found.toStringRecur(true, true));
         }else {
@@ -421,7 +248,6 @@ public class SparkDegreesOfSeperation {
         }
 
         if(args.length > 6 ) {
-            rdd.coalesce(5).saveAsTextFile(args[6] + "test/");
 			Configuration hconf = new Configuration();
 			hconf.set("fs.defaultFS", args[6]);
 			System.out.println("Connecting to -- " + hconf.get("fs.defaultFS"));
@@ -429,7 +255,6 @@ public class SparkDegreesOfSeperation {
 			hconf.set("fs.hdfs.impl", org.apache.hadoop.hdfs.DistributedFileSystem.class.getName());
 			hconf.set("fs.file.impl", org.apache.hadoop.fs.LocalFileSystem.class.getName());
 
-			//System.setProperty("HADOOP_USER_NAME", "hdfs");
 			System.setProperty("hadoop.home.dir", "/");
 			FileSystem fs = FileSystem.get(URI.create(args[6]), hconf);
 
@@ -440,46 +265,6 @@ public class SparkDegreesOfSeperation {
 			else outputStream.writeBytes("No Connections Found");
 			outputStream.close();
 		}
-
-
-//        JavaPairRDD<String, String> crewLines = makeRDD(crewDataFile, false);
-//        List<Tuple2<String, String>> crewLinesOut = crewLines.take(10);
-//        for(Tuple2<String, String> s: crewLinesOut)
-//            System.out.println(s);
-//
-//        JavaPairRDD<String, String> titleLines = makeRDD(titleDataFile, true);
-//        List<Tuple2<String, String>> titleLinesOut = titleLines.take(10);
-//        for(Tuple2<String, String> s: titleLinesOut)
-//            System.out.println(s);
-//
-//        crewTable = spark.createDataset(crewLines.collect(), Encoders.tuple(Encoders.STRING(), Encoders.STRING())).toDF("id","assoc");
-//        crewTable.createOrReplaceGlobalTempView("crew_T");
-//
-//        titleTable = spark.createDataset(titleLines.collect(), Encoders.tuple(Encoders.STRING(), Encoders.STRING())).toDF("id","assoc");
-//        titleTable.createOrReplaceGlobalTempView("title_T");
-
-//        sourceID = getCrewID(args[2], args[3]);
-//        System.out.println("Source ID is: "+sourceID);
-//
-//        destinationID = getCrewID(args[4], args[5]);
-//        System.out.println("DestinationID is: "+destinationID);
-//
-//        if (sourceID.isEmpty() || destinationID.isEmpty()) {
-//            System.out.println("ERROR: Could not find that person");
-//            return;
-//        }
-//
-//        // Run BFS
-//        Node path = bfs();
-//        String output = "";
-//        if(path != null) {
-//
-//            output = path.toString() + " was found in " + path.getDepth()/2 + " people!";
-//        }else {
-//            output = "Cant find path";
-//        }
-//
-//        System.out.println(output);
 
     }
 }
